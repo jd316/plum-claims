@@ -12,6 +12,7 @@ breakage) for passwords, and `PyJWT` (HS256) for tokens. No external IdP.
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import cast
@@ -92,6 +93,7 @@ def make_token(user: "Principal | object", expires_minutes: int | None = None) -
         "member_id": getattr(user, "member_id", None),
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=minutes)).timestamp()),
+        "jti": uuid.uuid4().hex,  # unique id → enables revocation (logout/compromise)
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 

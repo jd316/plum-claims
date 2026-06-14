@@ -23,7 +23,12 @@ _maybe_enable_langsmith()
 # of the at-rest encryption flag. Best-effort: a setup failure must not block startup.
 def _install_pii_log_masking() -> None:
     try:
-        from app.services.log_filter import install_pii_masking
+        from app.config import settings as _s
+        from app.services.log_filter import install_pii_masking, configure_json_logging
+        # JSON output FIRST (sets the root handler's formatter), then PII masking so the
+        # filter is attached to that handler and redacts fields before they're serialized.
+        if _s.json_logs:
+            configure_json_logging()
         install_pii_masking("plum.claims", "plum.persistence", "plum.audit",
                             "plum.crypto", "plum.auth", "plum.worker")
     except Exception as e:  # noqa: BLE001 — logging hardening must never crash boot
@@ -115,6 +120,10 @@ async def lifespan(app):
     try:
         persistence.init_db()
     except Exception as e:
+        # Production: a failed migration / DB init must FAIL-FAST (don't serve a stale
+        # or broken schema). Dev/test stay tolerant so the app boots without a DB.
+        if settings.app_env.lower() == "production":
+            raise
         log.warning("DB init failed at startup; continuing without persistence: %s", e)
     # Best-effort idempotent user seeding (ops + one per policy member). Harmless when
     # auth is off; a down DB / missing table logs and is swallowed inside seed_users().
@@ -136,11 +145,20 @@ _cors_origins = [o.strip() for o in settings.cors_allow_origins.split(",") if o.
 app.add_middleware(CORSMiddleware, allow_origins=_cors_origins, allow_methods=["*"], allow_headers=["*"])
 
 
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+
+# Labelled by ROUTE TEMPLATE (e.g. /api/claims/{claim_id}), never the raw path, so
+# per-claim ids don't explode label cardinality.
+_REQ_COUNT = Counter("http_requests_total", "HTTP requests", ["method", "route", "status"])
+_REQ_LATENCY = Histogram("http_request_duration_seconds", "HTTP request latency (s)",
+                         ["method", "route"])
+
+
 @app.middleware("http")
 async def _request_context(request: Request, call_next):
-    """Assign/propagate a correlation id per request and emit one structured access
-    line (id, method, path, status, latency) so requests are traceable end-to-end and
-    the id is returned to the client/proxy via X-Request-ID."""
+    """Per-request: assign/propagate a correlation id (returned as X-Request-ID), emit
+    one structured access line, and record Prometheus request count + latency so the
+    API is traceable AND monitorable end-to-end."""
     import time as _time
     rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
     start = _time.monotonic()
@@ -151,9 +169,23 @@ async def _request_context(request: Request, call_next):
         response.headers["X-Request-ID"] = rid
         return response
     finally:
-        dur_ms = round((_time.monotonic() - start) * 1000, 1)
+        dur_s = _time.monotonic() - start
+        route = request.scope.get("route")
+        route_label = getattr(route, "path", None) or "unmatched"
+        try:
+            _REQ_COUNT.labels(request.method, route_label, str(status)).inc()
+            _REQ_LATENCY.labels(request.method, route_label).observe(dur_s)
+        except Exception:  # noqa: BLE001 — metrics must never break a request
+            pass
         log.info("request id=%s method=%s path=%s status=%s dur_ms=%s",
-                 rid, request.method, request.url.path, status, dur_ms)
+                 rid, request.method, request.url.path, status, round(dur_s * 1000, 1))
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    """Prometheus scrape endpoint (request count/latency by route+status). No PHI —
+    labels are route templates and methods only."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.exception_handler(Exception)
@@ -247,6 +279,28 @@ def auth_me(user: Principal | None = Depends(current_user)):
     if user is None:  # auth on + no/invalid token
         raise HTTPException(401, detail="Authentication required")
     return {"username": user.username, "role": user.role, "member_id": user.member_id}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(authorization: str | None = Header(default=None)):
+    """Revoke the presented bearer token (by jti) until its natural expiry, so a stolen
+    or logged-out token stops working immediately. No-op when auth is off or no valid
+    token is presented (always 200 — logout must never error)."""
+    if not settings.auth_enabled:
+        return {"status": "ok"}
+    import time as _time
+    from app.deps_auth import _bearer_token
+    from app.services.token_revocation import get_revocation_store
+    token = _bearer_token(authorization)
+    if not token:
+        return {"status": "ok"}
+    try:
+        claims = auth_service.decode_token(token)
+    except auth_service.TokenError:
+        return {"status": "ok"}  # already invalid/expired
+    ttl = int(claims.get("exp", 0)) - int(_time.time())
+    get_revocation_store().revoke(claims.get("jti"), ttl)
+    return {"status": "ok", "revoked": True}
 
 @app.get("/api/members")
 def members(user: Principal = Depends(require_ops)):

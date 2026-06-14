@@ -10,6 +10,7 @@ leak PII. Cheap: precompiled regexes + a single alternation over the (small) nam
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 
@@ -73,6 +74,34 @@ class PiiMaskingFilter(logging.Filter):
         except Exception:  # noqa: BLE001 — never lose a log line to a masking bug
             pass
         return True
+
+
+class JsonLogFormatter(logging.Formatter):
+    """One JSON object per log line. `getMessage()` is read AFTER the PII filter has
+    masked record.msg, so emitted fields are already redacted. Exceptions are attached
+    as a string field, never a raw multi-line traceback that breaks line-delimited JSON."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        obj = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:
+            obj["exc"] = self.formatException(record.exc_info)
+        return json.dumps(obj, ensure_ascii=False)
+
+
+def configure_json_logging() -> None:
+    """Switch the root logger to line-delimited JSON output. Idempotent. Call once at
+    startup when settings.json_logs is True; PII masking is installed separately and
+    runs first, so JSON fields are already redacted."""
+    root = logging.getLogger()
+    if not root.handlers:
+        root.addHandler(logging.StreamHandler())
+    for h in root.handlers:
+        h.setFormatter(JsonLogFormatter())
 
 
 def install_pii_masking(*logger_names: str) -> PiiMaskingFilter:

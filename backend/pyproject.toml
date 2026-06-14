@@ -16,6 +16,8 @@ dependencies = [
   # Fernet at-rest PHI encryption (app/services/crypto.py). Direct dependency —
   # previously present only transitively.
   "cryptography>=42",
+  # Prometheus metrics endpoint (/metrics).
+  "prometheus-client>=0.20",
 ]
 [project.optional-dependencies]
 dev = ["pytest>=8.2", "pytest-timeout>=2.3", "httpx>=0.27", "hypothesis>=6.100",

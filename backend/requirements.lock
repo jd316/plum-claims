@@ -46,6 +46,7 @@ orjson==3.11.9
 ormsgpack==1.12.2
 packaging==26.2
 pillow==12.2.0
+prometheus-client==0.25.0
 prompt_toolkit==3.0.52
 psycopg==3.3.4
 psycopg-binary==3.3.4

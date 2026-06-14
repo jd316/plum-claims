@@ -133,6 +133,14 @@ def init_db():
     # create_all runs — otherwise the `audit_log` table is never created on a fresh
     # dev DB (audit.py is only imported lazily elsewhere, and alembic is best-effort).
     from app.services import audit as _audit_models  # noqa: F401
+    if settings.app_env.lower() == "production":
+        # Production: the schema is MIGRATION-MANAGED. Run `alembic upgrade head`
+        # FAIL-FAST (a failed migration must block boot, not silently serve a stale
+        # schema) and do NOT create_all — migrations are the single source of truth.
+        run_migrations(strict=True)
+        return
+    # Dev/test: create_all keeps startup self-sufficient without an Alembic step (tests
+    # spin up fresh DBs); migrations then apply additive changes best-effort.
     try:
         Base.metadata.create_all(engine)
     except Exception as e:
@@ -140,17 +148,19 @@ def init_db():
     run_migrations()
 
 
-def run_migrations():
-    """Best-effort `alembic upgrade head` so an existing DB picks up the additive
-    indices + normalized tables. Tolerant like init_db: a failure (DB down, alembic
-    missing) logs and is swallowed — the app still boots and the pipeline still runs.
-    The canonical, explicit path remains `alembic upgrade head` from backend/."""
+def run_migrations(strict: bool = False):
+    """`alembic upgrade head`. In dev/test (strict=False) a failure logs and is
+    swallowed so the app still boots; in production (strict=True) a failure RAISES so
+    a broken/stale schema blocks boot. The canonical CLI path remains
+    `alembic upgrade head` from backend/."""
     try:
         import pathlib
         from alembic.config import Config
         from alembic import command
         ini = pathlib.Path(__file__).resolve().parents[2] / "alembic.ini"
         if not ini.exists():
+            if strict:
+                raise RuntimeError(f"alembic.ini not found at {ini}")
             return
         cfg = Config(str(ini))
         # Don't let alembic's env.py run fileConfig() here — it would disable the
@@ -159,6 +169,8 @@ def run_migrations():
         cfg.attributes["configure_logger"] = False
         command.upgrade(cfg, "head")
     except Exception as e:
+        if strict:
+            raise
         log.warning("run_migrations (alembic upgrade head) skipped/failed: %s", e)
 
 

@@ -45,9 +45,13 @@ def current_user(authorization: str | None = Header(default=None)) -> Principal 
     if token is None:
         return None
     try:
-        return principal_from_claims(decode_token(token))
+        claims = decode_token(token)
     except TokenError:
         raise HTTPException(401, detail="Invalid or expired token")
+    from app.services.token_revocation import get_revocation_store
+    if get_revocation_store().is_revoked(claims.get("jti")):
+        raise HTTPException(401, detail="Token has been revoked")
+    return principal_from_claims(claims)
 
 
 def require_user(user: Principal | None = Depends(current_user)) -> Principal:

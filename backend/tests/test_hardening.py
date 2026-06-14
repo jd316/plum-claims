@@ -77,3 +77,40 @@ def test_dev_only_warns_never_raises(monkeypatch):
     monkeypatch.setattr(settings, "auth_enabled", False)
     monkeypatch.setattr(settings, "phi_encryption_enabled", False)
     _check_insecure_defaults()  # must not raise
+
+
+# --- observability + token revocation --------------------------------------- #
+def test_metrics_endpoint_exposes_prometheus():
+    from app.main import app
+    client = TestClient(app)
+    client.get("/api/health")  # generate at least one request
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    assert "http_requests_total" in r.text
+
+
+def test_json_log_formatter_emits_one_json_object():
+    import json
+    import logging
+    from app.services.log_filter import JsonLogFormatter
+    rec = logging.LogRecord("plum.test", logging.INFO, __file__, 1, "hello %s", ("world",), None)
+    out = json.loads(JsonLogFormatter().format(rec))
+    assert out["level"] == "INFO" and out["logger"] == "plum.test" and out["msg"] == "hello world"
+
+
+def test_logout_revokes_token(monkeypatch):
+    from app.services.persistence import init_db
+    from app.services import auth as A
+    init_db()
+    A.seed_users()
+    monkeypatch.setattr(settings, "auth_enabled", True)
+    from app.main import app
+    client = TestClient(app)
+    login = client.post("/api/auth/login",
+                        json={"username": "EMP001", "password": settings.member_default_password})
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+    hdr = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/auth/me", headers=hdr).status_code == 200      # valid before logout
+    assert client.post("/api/auth/logout", headers=hdr).status_code == 200
+    assert client.get("/api/auth/me", headers=hdr).status_code == 401      # revoked after logout

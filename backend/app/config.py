@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # box; size against Postgres max_connections when running multiple replicas.
     db_pool_size: int = 10
     db_max_overflow: int = 20
+    # Emit logs as one JSON object per line (for aggregators/queryable fields). OFF by
+    # default → human-readable text (dev/test unchanged). PII masking applies either way.
+    json_logs: bool = False
     # Comma-separated browser origin allowlist for CORS. Default "*" preserves the
     # original permissive behaviour (safe here: auth is Bearer-token, not cookie, so
     # a wildcard is not a credential-theft vector). Set to specific origins in prod.
