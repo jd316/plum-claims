@@ -136,6 +136,26 @@ _cors_origins = [o.strip() for o in settings.cors_allow_origins.split(",") if o.
 app.add_middleware(CORSMiddleware, allow_origins=_cors_origins, allow_methods=["*"], allow_headers=["*"])
 
 
+@app.middleware("http")
+async def _request_context(request: Request, call_next):
+    """Assign/propagate a correlation id per request and emit one structured access
+    line (id, method, path, status, latency) so requests are traceable end-to-end and
+    the id is returned to the client/proxy via X-Request-ID."""
+    import time as _time
+    rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+    start = _time.monotonic()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        response.headers["X-Request-ID"] = rid
+        return response
+    finally:
+        dur_ms = round((_time.monotonic() - start) * 1000, 1)
+        log.info("request id=%s method=%s path=%s status=%s dur_ms=%s",
+                 rid, request.method, request.url.path, status, dur_ms)
+
+
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request: Request, exc: Exception):
     """Last-resort handler: log the real error server-side, return a clean envelope
