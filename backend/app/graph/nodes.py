@@ -339,6 +339,13 @@ def explain(state: ClaimState):
                                 "Claim stopped before decision: " + state["problems"][0].message,
                                 started=started)]}
     d: Decision = cast(Decision, state["decision"])
+    # The extraction-quality component of the confidence score is driven by the two
+    # fields load-bearing for EVERY claim type: patient identity (right person — also the
+    # TC003 mismatch check) and total amount (right money — drives the financial calc /
+    # limits). diagnosis/treatment are deliberately excluded: they matter only for
+    # condition-gated claims (waiting period / exclusion), so folding their (often lower)
+    # confidence into a universal signal would muddy it — and the confidence is an
+    # explainable triage signal, not a probability. Conscious trade-off, not an oversight.
     verdict_fields = [e for ex in state["extractions"] for f, e in
                       (("patient", ex.patient_name), ("total", ex.total_amount))]
     load_bearing = [f.confidence for f in verdict_fields if f.value is not None]
