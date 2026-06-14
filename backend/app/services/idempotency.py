@@ -59,6 +59,14 @@ class IdempotencyStore:
             self._redis = None
         return self._redis
 
+    def ping(self) -> bool:
+        """True if the Redis backing store is reachable (for readiness probes).
+        Never raises — Redis is optional and the store degrades to in-memory."""
+        try:
+            return self._redis_client() is not None
+        except Exception:  # noqa: BLE001
+            return False
+
     def get(self, key: str | None) -> str | None:
         """Return the claim_id previously stored for `key`, or None if unseen
         (or key is None/empty). None key always misses → caller processes normally."""

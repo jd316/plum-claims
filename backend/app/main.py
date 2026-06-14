@@ -32,7 +32,7 @@ _install_pii_log_masking()
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ValidationError
 from app.models.schemas import ClaimCategory, ClaimSubmission, DocumentInput
 from app.services import auth as auth_service
@@ -83,6 +83,19 @@ def _check_insecure_defaults() -> None:
     if settings.auth_enabled and settings.member_default_password == "member-dev-password":
         problems.append("AUTH_ENABLED=true but MEMBER_DEFAULT_PASSWORD is the documented dev "
                         "default ('member-dev-password') — set a strong MEMBER_DEFAULT_PASSWORD.")
+    # Secure-by-default in production: serving/storing PHI requires auth + at-rest
+    # encryption ON, and non-default object-store credentials. These are prod-only
+    # (guarded by is_prod) so development / tests / the eval are unaffected.
+    if is_prod and not settings.auth_enabled:
+        problems.append("APP_ENV=production but AUTH_ENABLED is false — refusing to serve PHI "
+                        "without authentication.")
+    if is_prod and not settings.phi_encryption_enabled:
+        problems.append("APP_ENV=production but PHI_ENCRYPTION_ENABLED is false — refusing to "
+                        "store PHI unencrypted at rest.")
+    if is_prod and settings.object_store == "minio" and "minioadmin" in (
+            settings.minio_access_key, settings.minio_secret_key):
+        problems.append("APP_ENV=production with object_store=minio but MinIO credentials are the "
+                        "default 'minioadmin' — set strong MINIO_ACCESS_KEY/MINIO_SECRET_KEY.")
     if not problems:
         return
     if is_prod:
@@ -118,10 +131,42 @@ async def lifespan(app):
     yield
 
 app = FastAPI(title="Plum Claims Processing", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+_cors_origins = [o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()] or ["*"]
+app.add_middleware(CORSMiddleware, allow_origins=_cors_origins, allow_methods=["*"], allow_headers=["*"])
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    """Last-resort handler: log the real error server-side, return a clean envelope
+    to the client (never a stack trace). HTTPException/validation errors are handled
+    by FastAPI's own handlers and never reach here."""
+    log.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
 
 @app.get("/api/health")
-def health() -> dict: return {"status": "ok"}
+def health() -> dict:
+    """Liveness — the process is up. Always 200 (used by container healthchecks)."""
+    return {"status": "ok"}
+
+
+@app.get("/api/ready")
+def ready():
+    """Readiness — dependencies reachable. 200 only if Postgres answers; Redis is
+    reported but not required (the app degrades to sync/in-memory without it). Use
+    this (not /api/health) to gate traffic in an orchestrator."""
+    checks: dict = {}
+    try:
+        from sqlalchemy import text as _text
+        with persistence.engine.connect() as c:
+            c.execute(_text("select 1"))
+        checks["db"] = "ok"
+    except Exception as e:  # noqa: BLE001 — readiness must report, not raise
+        checks["db"] = f"error: {str(e)[:80]}"
+    checks["redis"] = "ok" if get_idempotency_store().ping() else "unavailable"
+    ok = checks.get("db") == "ok"
+    return JSONResponse(status_code=200 if ok else 503,
+                        content={"status": "ready" if ok else "not ready", "checks": checks})
 
 # ---------------------------------------------------------------------------
 # Auth endpoints (exist regardless of settings.auth_enabled). Login issues a
@@ -435,7 +480,7 @@ def submit_claim_async(payload: str = Form(...), files: list[UploadFile] = File(
 
 
 @app.get("/api/jobs/{job_id}")
-def job_status(job_id: str):
+def job_status(job_id: str, user: Principal = Depends(require_user)):
     """Poll a queued async claim. Maps Celery's AsyncResult state to the UI's
     status vocabulary and, once completed, attaches the persisted ClaimResult.
 
@@ -460,6 +505,10 @@ def job_status(job_id: str):
         # lacks it (e.g. persistence was down during processing).
         payload = res.result if isinstance(res.result, dict) else None
         claim_id = (payload or {}).get("claim_id")
+        # The completed result is PHI — enforce owner-or-ops on the claim before returning
+        # it (the job_id is an unguessable Celery UUID, but that is not authorization).
+        if claim_id:
+            require_owner_or_ops(_claim_member_id(claim_id), user)
         out["claim_id"] = claim_id
         out["result"] = (persistence.get_claim(claim_id) if claim_id else None) or payload
     elif status == "failed":

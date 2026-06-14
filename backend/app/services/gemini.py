@@ -17,7 +17,10 @@ _client: genai.Client | None = None
 def client() -> genai.Client:
     global _client
     if _client is None:
-        _client = genai.Client(api_key=settings.gemini_api_key)
+        _client = genai.Client(
+            api_key=settings.gemini_api_key,
+            http_options=types.HttpOptions(timeout=settings.gemini_timeout_ms),
+        )
     return _client
 
 def _usage_dict(resp) -> dict:

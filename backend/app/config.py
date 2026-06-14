@@ -33,7 +33,20 @@ class Settings(BaseSettings):
     # model to stay fully on the free tier.
     gemini_model: str = "gemini-flash-latest"
     gemini_pro_model: str = "gemini-pro-latest"
+    # Hard wall-clock timeout for every Gemini HTTP call (ms). Bounds threadpool
+    # exhaustion if the upstream hangs; the resilience layer (breaker + retries +
+    # flash→pro fallback) handles the resulting error. Generous default so normal
+    # vision calls (typically < 30 s) never trip it.
+    gemini_timeout_ms: int = 90000
     database_url: str = "postgresql+psycopg://plum:plum@localhost:5432/claims"
+    # DB connection pool sizing (per process). Defaults are conservative for a single
+    # box; size against Postgres max_connections when running multiple replicas.
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    # Comma-separated browser origin allowlist for CORS. Default "*" preserves the
+    # original permissive behaviour (safe here: auth is Bearer-token, not cookie, so
+    # a wildcard is not a credential-theft vector). Set to specific origins in prod.
+    cors_allow_origins: str = "*"
 
     # --- Async claim processing (Celery + self-hosted Redis) -------------------
     # Redis is an OSS container (like Postgres), not a third-party service. The

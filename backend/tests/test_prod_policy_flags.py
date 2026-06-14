@@ -5,7 +5,6 @@ These tests prove (a) the default-OFF no-op and (b) the enforcement when the fla
 We toggle settings via monkeypatch so the global default is never mutated across tests."""
 from datetime import date
 
-import pytest
 
 from app.config import settings
 from app.graph.nodes import intake

@@ -226,7 +226,10 @@ def test_insecure_default_check_passes_with_strong_secret(monkeypatch):
     monkeypatch.setattr(settings, "app_env", "production")
     monkeypatch.setattr(settings, "auth_enabled", True)
     monkeypatch.setattr(settings, "jwt_secret", "a-strong-production-secret-0123456789-abcdefghijkl")
-    monkeypatch.setattr(settings, "phi_encryption_enabled", False)
+    # Secure-by-default now requires at-rest PHI encryption ON in production, so a
+    # fully-valid prod config supplies both the flag and a key.
+    monkeypatch.setattr(settings, "phi_encryption_enabled", True)
+    monkeypatch.setattr(settings, "phi_encryption_key", "a-strong-phi-encryption-key-value")
     monkeypatch.setattr(settings, "ops_default_password", "a-strong-ops-password")
     monkeypatch.setattr(settings, "member_default_password", "a-strong-member-password")
     _check_insecure_defaults()  # must not raise

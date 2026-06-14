@@ -9,7 +9,10 @@ from app.models.schemas import ClaimResult, ClaimSubmission
 from app.services.timefmt import iso_utc
 
 Base = declarative_base()
-engine = create_engine(settings.database_url, pool_pre_ping=True)
+engine = create_engine(settings.database_url, pool_pre_ping=True,
+                        pool_size=settings.db_pool_size,
+                        max_overflow=settings.db_max_overflow,
+                        pool_recycle=1800)
 Session = sessionmaker(bind=engine)
 
 class ClaimRow(Base):

@@ -1,5 +1,4 @@
 """Login brute-force throttle (app.services.ratelimit + /api/auth/login)."""
-import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
