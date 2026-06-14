@@ -245,17 +245,15 @@ _llm_limiter = SlidingWindowLimiter(settings.llm_rate_limit_max,
 
 
 def _client_ip(request: Request) -> str:
-    """The real client IP for rate-limiting. The app sits behind nginx, which sets
-    X-Real-IP / X-Forwarded-For to the true client; request.client.host would be the
-    nginx container IP (collapsing all clients into one bucket). The backend is not
-    publicly reachable (only nginx connects), so trusting these proxy headers is safe;
-    falls back to the socket peer when no proxy is present (e.g. tests, direct calls)."""
+    """The real client IP for rate-limiting. nginx sets X-Real-IP to $remote_addr,
+    OVERWRITING any client-supplied value, so it is trustworthy. We deliberately do
+    NOT trust the leftmost X-Forwarded-For entry: that hop is client-controlled (nginx
+    appends the real peer to whatever the client sent), so honoring it would let an
+    attacker rotate a spoofed value to evade the per-IP rate limit. Falls back to the
+    socket peer when no trusted X-Real-IP is present (e.g. tests / direct calls)."""
     xri = request.headers.get("x-real-ip")
     if xri:
         return xri.strip()
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()  # first hop = original client
     return request.client.host if request.client else "unknown"
 
 

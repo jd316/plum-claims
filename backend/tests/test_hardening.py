@@ -116,8 +116,11 @@ def test_client_ip_trusts_proxy_headers():
             self.headers = headers
             self.client = type("C", (), {"host": "10.0.0.1"})()  # nginx hop
 
+    # X-Real-IP (nginx overwrites it with the real peer) is trusted.
     assert _client_ip(_Req({"x-real-ip": "203.0.113.9"})) == "203.0.113.9"
-    assert _client_ip(_Req({"x-forwarded-for": "203.0.113.9, 10.0.0.1"})) == "203.0.113.9"
+    # X-Forwarded-For is client-spoofable (leftmost hop) → NOT trusted; falls back to
+    # the socket peer, so an attacker can't rotate it to evade the rate limit.
+    assert _client_ip(_Req({"x-forwarded-for": "1.2.3.4, 10.0.0.1"})) == "10.0.0.1"
     assert _client_ip(_Req({})) == "10.0.0.1"  # no proxy headers → socket peer
 
 
