@@ -98,6 +98,29 @@ def test_json_log_formatter_emits_one_json_object():
     assert out["level"] == "INFO" and out["logger"] == "plum.test" and out["msg"] == "hello world"
 
 
+def test_is_production_normalizes(monkeypatch):
+    # A fat-fingered APP_ENV must still engage the hard prod refusals.
+    for val in ("production", "prod", "Production ", "PRODUCTION\n", "  prod  "):
+        monkeypatch.setattr(settings, "app_env", val)
+        assert settings.is_production is True, val
+    for val in ("development", "dev", "staging", "test", ""):
+        monkeypatch.setattr(settings, "app_env", val)
+        assert settings.is_production is False, val
+
+
+def test_client_ip_trusts_proxy_headers():
+    from app.main import _client_ip
+
+    class _Req:
+        def __init__(self, headers):
+            self.headers = headers
+            self.client = type("C", (), {"host": "10.0.0.1"})()  # nginx hop
+
+    assert _client_ip(_Req({"x-real-ip": "203.0.113.9"})) == "203.0.113.9"
+    assert _client_ip(_Req({"x-forwarded-for": "203.0.113.9, 10.0.0.1"})) == "203.0.113.9"
+    assert _client_ip(_Req({})) == "10.0.0.1"  # no proxy headers → socket peer
+
+
 def test_logout_revokes_token(monkeypatch):
     from app.services.persistence import init_db
     from app.services import auth as A

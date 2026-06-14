@@ -67,7 +67,7 @@ ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".pdf"}
 def _check_insecure_defaults() -> None:
     """Refuse to boot in production with insecure security defaults; warn loudly
     otherwise. Tests run with app_env=development → warning only, never a crash."""
-    is_prod = settings.app_env.lower() == "production"
+    is_prod = settings.is_production
     problems: list[str] = []
     if settings.auth_enabled and settings.jwt_secret == "dev-insecure-change-me":
         problems.append("AUTH_ENABLED=true but JWT_SECRET is the insecure dev default "
@@ -122,7 +122,7 @@ async def lifespan(app):
     except Exception as e:
         # Production: a failed migration / DB init must FAIL-FAST (don't serve a stale
         # or broken schema). Dev/test stay tolerant so the app boots without a DB.
-        if settings.app_env.lower() == "production":
+        if settings.is_production:
             raise
         log.warning("DB init failed at startup; continuing without persistence: %s", e)
     # Best-effort idempotent user seeding (ops + one per policy member). Harmless when
@@ -244,12 +244,27 @@ _llm_limiter = SlidingWindowLimiter(settings.llm_rate_limit_max,
                                     settings.llm_rate_limit_window_seconds)
 
 
+def _client_ip(request: Request) -> str:
+    """The real client IP for rate-limiting. The app sits behind nginx, which sets
+    X-Real-IP / X-Forwarded-For to the true client; request.client.host would be the
+    nginx container IP (collapsing all clients into one bucket). The backend is not
+    publicly reachable (only nginx connects), so trusting these proxy headers is safe;
+    falls back to the socket peer when no proxy is present (e.g. tests, direct calls)."""
+    xri = request.headers.get("x-real-ip")
+    if xri:
+        return xri.strip()
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()  # first hop = original client
+    return request.client.host if request.client else "unknown"
+
+
 def _llm_rate_limit(request: Request) -> None:
     """Per-IP throttle for paid Gemini-backed endpoints (cost-DoS guard). Gated OFF by
     default → no-op in dev/test/eval; enable settings.llm_rate_limit_enabled in prod."""
     if not settings.llm_rate_limit_enabled:
         return
-    ip = request.client.host if request.client else "unknown"
+    ip = _client_ip(request)
     if not _llm_limiter.allow(f"llm|{ip}"):
         raise HTTPException(429, detail="Rate limit exceeded for AI processing — please retry shortly.")
 
@@ -257,7 +272,7 @@ def _llm_rate_limit(request: Request) -> None:
 def auth_login(req: LoginRequest, request: Request):
     # Brute-force throttle (only when auth is on): cap attempts per username + client IP.
     if settings.auth_enabled:
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = _client_ip(request)
         if not _login_limiter.allow(f"{req.username}|{client_ip}"):
             raise HTTPException(429, detail="Too many login attempts — please wait and retry.")
     principal = auth_service.authenticate(req.username, req.password)
@@ -603,12 +618,18 @@ def job_status(job_id: str, user: Principal = Depends(require_user)):
         # lacks it (e.g. persistence was down during processing).
         payload = res.result if isinstance(res.result, dict) else None
         claim_id = (payload or {}).get("claim_id")
-        # The completed result is PHI — enforce owner-or-ops on the claim before returning
-        # it (the job_id is an unguessable Celery UUID, but that is not authorization).
         if claim_id:
+            # The completed result is PHI — enforce owner-or-ops before returning it
+            # (the job_id is an unguessable Celery UUID, but that is not authorization).
             require_owner_or_ops(_claim_member_id(claim_id), user)
-        out["claim_id"] = claim_id
-        out["result"] = (persistence.get_claim(claim_id) if claim_id else None) or payload
+            out["claim_id"] = claim_id
+            out["result"] = persistence.get_claim(claim_id) or payload
+        else:
+            # Fail-CLOSED: a completed job with no resolvable claim id has no owner to
+            # authorize against, so we must NOT return the raw result payload (PHI) here.
+            out["claim_id"] = None
+            out["result"] = None
+            out["note"] = "result unavailable (no associated claim id)"
     elif status == "failed":
         out["error"] = str(res.result)[:300]
     return out

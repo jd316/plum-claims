@@ -133,7 +133,7 @@ def init_db():
     # create_all runs — otherwise the `audit_log` table is never created on a fresh
     # dev DB (audit.py is only imported lazily elsewhere, and alembic is best-effort).
     from app.services import audit as _audit_models  # noqa: F401
-    if settings.app_env.lower() == "production":
+    if settings.is_production:
         # Production: the schema is MIGRATION-MANAGED. Run `alembic upgrade head`
         # FAIL-FAST (a failed migration must block boot, not silently serve a stale
         # schema) and do NOT create_all — migrations are the single source of truth.

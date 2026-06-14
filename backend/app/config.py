@@ -227,6 +227,13 @@ class Settings(BaseSettings):
     # Default dev password for every seeded per-member account (EMP001, …).
     member_default_password: str = "member-dev-password"
 
+    @property
+    def is_production(self) -> bool:
+        """Normalized production check. Tolerant of whitespace and the 'prod' synonym
+        so a fat-fingered APP_ENV ('prod', 'Production ', 'PRODUCTION\\n') still engages
+        the hard secure-by-default refusals rather than silently downgrading to warn."""
+        return self.app_env.strip().lower() in {"production", "prod"}
+
     def model_post_init(self, __context) -> None:
         # Resolve read-only asset paths so they work from any CWD.
         object.__setattr__(self, "policy_path", _resolve_asset(self.policy_path))
