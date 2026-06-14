@@ -10,6 +10,44 @@ from google.genai import types
 from pydantic import BaseModel
 
 
+class _Schema(BaseModel):
+    x: int = 0
+
+
+def test_permanent_error_short_circuits(monkeypatch):
+    """A non-retryable error (bad key / auth / invalid-argument) must raise after ONE
+    attempt, not burn all retries. Transient infra + ValidationError still retry."""
+    from app.services import gemini
+    calls = {"n": 0}
+
+    class _Models:
+        def generate_content(self, **kw):
+            calls["n"] += 1
+            raise RuntimeError("PERMISSION_DENIED: API key not valid")
+
+    monkeypatch.setattr(gemini, "client", lambda: type("C", (), {"models": _Models()})())
+    with pytest.raises(gemini.GeminiError):
+        gemini.generate_structured_with_usage(["x"], _Schema, attempts=3)
+    assert calls["n"] == 1  # short-circuited, did not retry 3x
+
+
+def test_transient_infra_error_still_retries(monkeypatch):
+    """A transient infra error (503) keeps retrying up to `attempts` — regression guard
+    that the short-circuit didn't disable retry."""
+    from app.services import gemini
+    calls = {"n": 0}
+
+    class _Models:
+        def generate_content(self, **kw):
+            calls["n"] += 1
+            raise RuntimeError("503 Service Unavailable")
+
+    monkeypatch.setattr(gemini, "client", lambda: type("C", (), {"models": _Models()})())
+    with pytest.raises(gemini.GeminiError):
+        gemini.generate_structured_with_usage(["x"], _Schema, attempts=3, backoff_base=0.0)
+    assert calls["n"] == 3  # retried all attempts
+
+
 # ---------------------------------------------------------------------------
 # Deterministic — pure mime-type detection in image_part()
 # ---------------------------------------------------------------------------

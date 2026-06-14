@@ -21,6 +21,22 @@ def _passing_verdicts():
             ("waiting_period", "coverage_exclusion", "pre_auth", "limits", "fraud_anomaly")]
 
 
+def test_degraded_trace_records_confidence_delta():
+    # A degraded component must record the per-step confidence cost so "confidence
+    # dropped because X" is visible in the trace, not just in the final composite.
+    from app.config import settings
+    sub = _submission().model_copy(update={"simulate_component_failure": True})
+
+    @nodes.resilient("fraud_anomaly")
+    def _fraud(state):
+        return {"trace": []}
+
+    out = _fraud({"submission": sub})
+    entry = out["trace"][0]
+    assert entry.degraded is True
+    assert entry.confidence_delta == -settings.degradation_penalty
+
+
 # ---------- FIX 1: nodes never raise ----------
 
 def test_aggregate_tolerates_none_financial():

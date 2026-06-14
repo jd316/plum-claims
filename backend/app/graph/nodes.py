@@ -41,14 +41,16 @@ def resilient(agent_name: str, *, critical: bool = False):
                                                       detail="component failed; check skipped", certainty=0.0)],
                         "trace": [trace("adjudicate", agent_name, "ERROR",
                                         "Simulated component failure — skipped, pipeline continues",
-                                        started=started, degraded=True, failure_mode="simulated")]}
+                                        started=started, degraded=True, failure_mode="simulated",
+                                        confidence_delta=-settings.degradation_penalty)]}
             try:
                 return fn(state)
             except Exception as e:
                 out: dict = {"failures": [ComponentFailure(agent=agent_name, failure_mode=str(e)[:200])],
                              "trace": [trace(agent_name, agent_name, "ERROR",
                                              f"{agent_name} failed: {str(e)[:120]} — continuing degraded",
-                                             started=started, degraded=True, failure_mode=str(e)[:120])]}
+                                             started=started, degraded=True, failure_mode=str(e)[:120],
+                                             confidence_delta=-settings.degradation_penalty)]}
                 if agent_name in RULES:
                     out["rule_verdicts"] = [RuleVerdict(rule=cast(RuleName, agent_name), status="SKIPPED",
                                                         detail=f"component error: {str(e)[:80]}", certainty=0.0)]

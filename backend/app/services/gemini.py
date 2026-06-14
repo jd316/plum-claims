@@ -3,9 +3,9 @@ import random, time
 from typing import TypeVar, cast
 from google import genai
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from app.config import settings
-from app.services.resilience import guarded_call, call_with_model_fallback
+from app.services.resilience import guarded_call, call_with_model_fallback, is_infra_error
 
 # Schema models are pydantic BaseModels; the helpers are generic over the concrete
 # model so callers get the exact type back (not a bare BaseModel).
@@ -66,10 +66,16 @@ def _generate_one_model(
             return schema.model_validate_json(resp.text or ""), usage
         except Exception as e:          # invalid JSON, API hiccup, 429 → backoff + retry
             last = e
+            # Short-circuit PERMANENT errors a retry cannot fix (bad API key / auth /
+            # invalid-argument): not transient-infra AND not a schema ValidationError
+            # (which a re-generation MIGHT still fix, so those keep retrying). This stops
+            # burning all attempts on a deterministic failure without weakening the
+            # retry robustness the eval relies on (infra + validation still retried).
+            if not is_infra_error(e) and not isinstance(e, ValidationError):
+                raise GeminiError(f"non-retryable error: {e}") from e
             # Exponential backoff with jitter, only between attempts (not after the last).
             # A 429 needs the request window to roll over before the next try; instant retry
-            # would just hit the same window. Note: permanent errors (e.g. a bad API key)
-            # still consume all retries — a known, acceptable trade-off here.
+            # would just hit the same window.
             if attempt < attempts - 1:
                 time.sleep(backoff_base * 2 ** attempt + random.uniform(0, 0.5))
     raise GeminiError(f"structured generation failed after {attempts} attempts: {last}")
@@ -133,10 +139,12 @@ def read_handwritten_word(path: str) -> str | None:
     prompt = ("This image is a crop of a single HANDWRITTEN word (a medicine name). "
               "Read it and reply with ONLY that one word, in plain text, no "
               "punctuation or explanation. If illegible, reply with your single best guess.")
-    resp = client().models.generate_content(
+    # Route through guarded_call (circuit breaker + concurrency cap) for consistency
+    # with every other live call.
+    resp = guarded_call(lambda: client().models.generate_content(
         model=settings.gemini_model,
         contents=[image_part(path), prompt],
-        config=types.GenerateContentConfig(temperature=0))
+        config=types.GenerateContentConfig(temperature=0)))
     text = (resp.text or "").strip()
     return text or None
 

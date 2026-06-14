@@ -79,6 +79,16 @@ class TraceEntryRow(Base):
     summary: Mapped[str | None] = mapped_column(String, nullable=True)
     degraded: Mapped[bool] = mapped_column(Boolean, default=False)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Full-fidelity projection (previously only in the JSON result blob) so the trace
+    # is queryable in SQL: policy refs, model + token cost per step, failure mode,
+    # per-step confidence delta, and the structured detail dict.
+    model: Mapped[str | None] = mapped_column(String, nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failure_mode: Mapped[str | None] = mapped_column(String, nullable=True)
+    confidence_delta: Mapped[float | None] = mapped_column(Float, nullable=True)
+    policy_refs: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    detail: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     __table_args__ = (Index("ix_trace_entries_claim_id", "claim_id"),)
 
@@ -211,7 +221,10 @@ def _populate_normalized(s, sub: ClaimSubmission, result: ClaimResult) -> None:
         s.add(TraceEntryRow(
             claim_id=result.claim_id, seq=t.seq, step=t.step, agent=t.agent,
             status=t.status, summary=t.summary, degraded=t.degraded,
-            duration_ms=t.duration_ms))
+            duration_ms=t.duration_ms, model=t.model, input_tokens=t.input_tokens,
+            output_tokens=t.output_tokens, failure_mode=t.failure_mode,
+            confidence_delta=t.confidence_delta, policy_refs=t.policy_refs or [],
+            detail=t.detail or {}))
 
 
 def save_claim(sub: ClaimSubmission, result: ClaimResult) -> str:
