@@ -38,6 +38,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.config import settings
 from app.services.persistence import Base, Session
+from app.services.timefmt import iso_utc
 from app.services.policy_engine import (PolicyEngine, get_policy_engine,
                                         invalidate_policy_cache)
 
@@ -70,7 +71,7 @@ class PolicyVersionRow(Base):
     policy_text: Mapped[str | None] = mapped_column(String, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_by: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     __table_args__ = (Index("ix_policy_versions_version_no", "version_no"),)
 
 
@@ -101,7 +102,7 @@ def _row_to_meta(row: PolicyVersionRow) -> dict:
         "label": row.label,
         "is_active": row.is_active,
         "created_by": row.created_by,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_at": iso_utc(row.created_at),
     }
 
 

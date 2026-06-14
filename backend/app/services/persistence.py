@@ -18,7 +18,7 @@ Session = sessionmaker(bind=engine)
 class ClaimRow(Base):
     __tablename__ = "claims"
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     member_id: Mapped[str | None] = mapped_column(String)
     category: Mapped[str | None] = mapped_column(String)
     blocked: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -50,7 +50,7 @@ class DocumentRow(Base):
     doc_type: Mapped[str | None] = mapped_column(String, nullable=True)
     stored_path: Mapped[str | None] = mapped_column(String, nullable=True)
     content_type: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     __table_args__ = (Index("ix_documents_claim_id", "claim_id"),)
 
 class UserRow(Base):
@@ -64,7 +64,7 @@ class UserRow(Base):
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False)  # "member" | "ops"
     member_id: Mapped[str | None] = mapped_column(String, nullable=True)  # set for member users
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     __table_args__ = (Index("ix_users_username", "username", unique=True),)
 
 
@@ -79,7 +79,7 @@ class TraceEntryRow(Base):
     summary: Mapped[str | None] = mapped_column(String, nullable=True)
     degraded: Mapped[bool] = mapped_column(Boolean, default=False)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     __table_args__ = (Index("ix_trace_entries_claim_id", "claim_id"),)
 
 log = logging.getLogger("plum.persistence")

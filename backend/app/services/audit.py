@@ -38,7 +38,7 @@ class AuditLogRow(Base):
     decision_status: Mapped[str | None] = mapped_column(String, nullable=True)
     approved_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     reason_codes: Mapped[Any] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     __table_args__ = (Index("ix_audit_log_claim_id", "claim_id"),)
 
 
