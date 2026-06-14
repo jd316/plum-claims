@@ -181,6 +181,12 @@ class Settings(BaseSettings):
     # login_rate_limit_max attempts per (username, client-IP) within the window.
     login_rate_limit_max: int = 10
     login_rate_limit_window_seconds: float = 60.0
+    # Per-IP throttle for the paid, Gemini-backed endpoints (classify / parse / ask),
+    # guarding against cost-amplification DoS. Gated OFF by default (dev/test/eval
+    # unaffected); enable in production.
+    llm_rate_limit_enabled: bool = False
+    llm_rate_limit_max: int = 30
+    llm_rate_limit_window_seconds: float = 60.0
     # Wayfinding-only: when True (and auth on), the login page shows an Operator|Member
     # toggle that switches the username placeholder + role description. It does NOT change
     # auth (role always comes from the credentials) and never pre-fills a password. Default
@@ -210,7 +216,9 @@ class Settings(BaseSettings):
     phi_encryption_enabled: bool = False
     phi_encryption_key: str = ""
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 720
+    # Token lifetime. Shortened from 12 h to one 8 h work shift (PHI access should not
+    # carry a day-long stateless token). Override per deployment as needed.
+    jwt_expire_minutes: int = 480
     # Default dev password for the seeded `ops` account (documented in README).
     ops_default_password: str = "ops-dev-password"
     # Default dev password for every seeded per-member account (EMP001, …).

@@ -32,7 +32,7 @@ _install_pii_log_masking()
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ValidationError
 from app.models.schemas import ClaimCategory, ClaimSubmission, DocumentInput
 from app.services import auth as auth_service
@@ -44,6 +44,7 @@ from app.graph.build import run_claim
 from app.evalrunner.runner import run_all, to_markdown, state_to_result
 from app.services import persistence
 from app.services import policy_store
+from app.services import crypto
 from app.services.preview_sample import from_test_case, from_inline
 from app.services.object_store import get_object_store, storage_key
 from app.services.policy_engine import get_policy_engine
@@ -187,6 +188,19 @@ class LoginResponse(BaseModel):
 _login_limiter = SlidingWindowLimiter(settings.login_rate_limit_max,
                                       settings.login_rate_limit_window_seconds)
 
+_llm_limiter = SlidingWindowLimiter(settings.llm_rate_limit_max,
+                                    settings.llm_rate_limit_window_seconds)
+
+
+def _llm_rate_limit(request: Request) -> None:
+    """Per-IP throttle for paid Gemini-backed endpoints (cost-DoS guard). Gated OFF by
+    default → no-op in dev/test/eval; enable settings.llm_rate_limit_enabled in prod."""
+    if not settings.llm_rate_limit_enabled:
+        return
+    ip = request.client.host if request.client else "unknown"
+    if not _llm_limiter.allow(f"llm|{ip}"):
+        raise HTTPException(429, detail="Rate limit exceeded for AI processing — please retry shortly.")
+
 @app.post("/api/auth/login", response_model=LoginResponse)
 def auth_login(req: LoginRequest, request: Request):
     # Brute-force throttle (only when auth is on): cap attempts per username + client IP.
@@ -259,7 +273,8 @@ def document_requirements(user: Principal = Depends(require_user)):
 
 @app.post("/api/documents/classify")
 def classify_document(file: UploadFile = File(...),
-                      user: Principal = Depends(require_user)):
+                      user: Principal = Depends(require_user),
+                      _rl: None = Depends(_llm_rate_limit)):
     """Live single-file classification for shift-left UX feedback. Saves the file
     to a scratch path, runs the SAME vision extraction the pipeline uses, and
     returns a small JSON summary. A Gemini failure degrades gracefully to a 200
@@ -324,6 +339,15 @@ def _ingest_claim(payload: str, files: list[UploadFile]) -> tuple[str, ClaimSubm
                     raise HTTPException(413, detail=(f"File '{f.filename}' exceeds the "
                                                      f"{MAX_FILE_BYTES // (1024 * 1024)} MB limit."))
                 out.write(chunk)
+        # Encrypt the source document at rest (the densest PHI) BEFORE it is placed/
+        # mirrored by the object store. Gated by phi_encryption_enabled → OFF in
+        # dev/test/eval (files stay plaintext; every reader passes through unchanged),
+        # ON in production. A failure here never breaks ingest (file stays plaintext).
+        if settings.phi_encryption_enabled:
+            try:
+                crypto.encrypt_file_in_place(path)
+            except Exception as e:  # noqa: BLE001 — encryption must not break ingest
+                log.warning("source-doc encryption failed for %s: %s", file_id, e)
         # Route the stored file through the object_store abstraction. In LOCAL mode
         # (default) this is a no-op: the file already lives at `path` under storage_dir
         # and put() returns that exact path, so stored_path/serving is unchanged. In
@@ -710,7 +734,9 @@ def claim_operator_decision(claim_id: str, body: OperatorDecisionRequest,
     stored = persistence.get_claim(claim_id)
     if stored is None:
         raise HTTPException(404, "claim not found")
-    note = (body.note or "").strip()
+    # The note is operator free-text persisted in the (PHI-minimized, retention-surviving)
+    # audit log — bound its length so it can't become a large PHI sink.
+    note = (body.note or "").strip()[:2000]
     if not note:
         raise HTTPException(422, "a decision note is required")
     result = ClaimResult.model_validate(stored)
@@ -899,7 +925,8 @@ def _claim_facts_for_chat(result: dict) -> str:
 
 @app.post("/api/claims/{claim_id}/ask")
 def claim_ask(claim_id: str, body: ClaimAskRequest,
-              user: Principal = Depends(require_user)):
+              user: Principal = Depends(require_user),
+              _rl: None = Depends(_llm_rate_limit)):
     """Read-only, per-claim chat assistant. Answers the member's question GROUNDED
     ONLY in this claim's stored decision/reasons/financial breakdown/trace — never
     invents policy and never changes any decision. Unknown claim → 404."""
@@ -945,7 +972,8 @@ class PolicyAskRequest(BaseModel):
 
 
 @app.post("/api/policy/ask")
-def policy_ask(body: PolicyAskRequest, user: Principal = Depends(require_user)):
+def policy_ask(body: PolicyAskRequest, user: Principal = Depends(require_user),
+               _rl: None = Depends(_llm_rate_limit)):
     """RAG over the policy. Retrieves the most relevant policy passages (cosine over
     Gemini embeddings, keyword fallback if embeddings are unavailable) and returns a
     grounded answer that cites the source passage titles. Read-only; says it is not
@@ -963,7 +991,8 @@ class ParseClaimRequest(BaseModel):
 
 
 @app.post("/api/claims/parse")
-def parse_claim(body: ParseClaimRequest, user: Principal = Depends(require_user)):
+def parse_claim(body: ParseClaimRequest, user: Principal = Depends(require_user),
+                _rl: None = Depends(_llm_rate_limit)):
     """Natural-language claim intake. Extracts a DRAFT claim from the member's free
     text (category/amount/hospital/date where inferable, nulls otherwise) to PRE-FILL
     the submission form. It NEVER submits or decides — no pipeline runs here. Read-only."""
@@ -1058,7 +1087,11 @@ def claim_document_file(claim_id: str, file_id: str,
         raise HTTPException(403, "file outside storage root")
     if not os.path.isfile(real_path):
         raise HTTPException(404, "file missing on disk")
-    return FileResponse(real_path, media_type=_content_type_for(real_path))
+    # Read through the decrypt-aware helper so an at-rest-encrypted document is served
+    # as its original bytes (plaintext/legacy files pass through unchanged). Files are
+    # capped at 15 MB on ingest, so loading into memory here is bounded.
+    return Response(content=crypto.read_file_decrypted(real_path),
+                    media_type=_content_type_for(real_path))
 
 # ---------------------------------------------------------------------------
 # Ops dashboard — additive, read-only analytics over the persisted claims.

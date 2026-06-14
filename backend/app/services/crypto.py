@@ -16,6 +16,7 @@ import base64
 import hashlib
 import json
 import logging
+import os
 from functools import lru_cache
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -27,10 +28,20 @@ log = logging.getLogger("plum.crypto")
 _warned_dev_key = False
 
 
+# Static application salt for the key-stretching KDF. A deterministic key derivation
+# needs a fixed salt (we must derive the SAME key every boot to decrypt prior data).
+# Its job here is iteration-count stretching to harden a low-entropy key, not per-row
+# uniqueness; a high-entropy PHI_ENCRYPTION_KEY needs no stretching but is not weakened.
+_KDF_SALT = b"plum-claims-phi-kdf-v1"
+_KDF_ITERATIONS = 600_000  # OWASP 2023 PBKDF2-HMAC-SHA256 floor
+
+
 def _derive_fernet_key(secret: str) -> bytes:
-    """Derive a urlsafe-base64 32-byte Fernet key deterministically from a secret.
-    Fernet requires a 32-byte urlsafe-base64 key; we SHA-256 the secret to 32 bytes."""
-    digest = hashlib.sha256(secret.encode("utf-8")).digest()
+    """Derive a urlsafe-base64 32-byte Fernet key deterministically from a secret,
+    via PBKDF2-HMAC-SHA256 (key stretching). Replaces a single-pass SHA-256 so a
+    weak/low-entropy key is hardened; a strong key is unaffected. Fernet needs a
+    32-byte urlsafe-base64 key."""
+    digest = hashlib.pbkdf2_hmac("sha256", secret.encode("utf-8"), _KDF_SALT, _KDF_ITERATIONS)
     return base64.urlsafe_b64encode(digest)
 
 
@@ -111,3 +122,45 @@ def decrypt_json_strict(s):
     wrong key. (Used to prove wrong-key fails closed.)"""
     raw = _fernet().decrypt(s.encode("utf-8")).decode("utf-8")
     return json.loads(raw)
+
+
+# --- raw bytes / file helpers (source-document encryption at rest) ----------
+
+def encrypt_bytes(b: bytes) -> bytes:
+    """Encrypt arbitrary bytes (e.g. a scanned bill/PDF) to a Fernet token (bytes)."""
+    return _fernet().encrypt(b)
+
+
+def decrypt_bytes(b: bytes) -> bytes:
+    """Decrypt a Fernet token to the original bytes. TOLERANT: if `b` is not a valid
+    token for our key (a legacy/plaintext file, e.g. raw JPEG/PDF bytes), it is
+    returned unchanged. This is what lets the encryption flag flip safely and keeps
+    dev/test (encryption off → plaintext files) reading through the same path."""
+    try:
+        return _fernet().decrypt(b)
+    except InvalidToken:
+        return b
+
+
+def encrypt_file_in_place(path: str) -> None:
+    """Encrypt a file on disk in place (read → encrypt → rewrite). Idempotent-safe:
+    a file that is ALREADY our token is left unchanged (decrypt succeeds → re-encrypt
+    would double-wrap, so we skip)."""
+    with open(path, "rb") as f:
+        raw = f.read()
+    try:
+        _fernet().decrypt(raw)  # already encrypted by us → skip
+        return
+    except InvalidToken:
+        pass
+    tmp = path + ".enc.tmp"
+    with open(tmp, "wb") as f:
+        f.write(_fernet().encrypt(raw))
+    os.replace(tmp, path)
+
+
+def read_file_decrypted(path: str) -> bytes:
+    """Read a document file, transparently decrypting if it was encrypted at rest.
+    Plaintext/legacy files pass through unchanged (see decrypt_bytes tolerance)."""
+    with open(path, "rb") as f:
+        return decrypt_bytes(f.read())

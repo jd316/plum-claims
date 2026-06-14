@@ -142,8 +142,10 @@ def read_handwritten_word(path: str) -> str | None:
 
 
 def image_part(path: str) -> types.Part:
-    with open(path, "rb") as f:
-        data = f.read()
+    # Decrypt-aware read: an at-rest-encrypted source document is transparently
+    # decrypted before going to the vision model; plaintext/legacy files pass through.
+    from app.services.crypto import read_file_decrypted
+    data = read_file_decrypted(path)
     lower = path.lower()
     if lower.endswith(".pdf"):
         mime = "application/pdf"
