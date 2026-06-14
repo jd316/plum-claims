@@ -1,0 +1,34 @@
+# Production overlay — apply on top of the base compose:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# It flips on the security posture (auth + at-rest PHI encryption) and runs in
+# production mode, where app.main._check_insecure_defaults() REFUSES to boot unless
+# strong secrets are supplied. Provide them from your secrets manager / a root-only
+# .env (never commit real secrets):
+#
+#   APP_ENV=production
+#   AUTH_ENABLED=true
+#   JWT_SECRET=$(openssl rand -base64 48)          # >= 48 chars enforced at boot
+#   PHI_ENCRYPTION_KEY=$(openssl rand -base64 48)
+#   OPS_DEFAULT_PASSWORD=<strong>                  # not the documented dev default
+#   MEMBER_DEFAULT_PASSWORD=<strong>
+#
+# For real horizontal scale, point DATABASE_URL / REDIS_URL at managed Postgres/Redis
+# and OBJECT_STORE_BACKEND=s3 at S3, then run N backend + worker replicas behind a load
+# balancer (see docs/architecture.md §11). This overlay only sets the secure runtime
+# flags; it does not, by itself, provision those managed services.
+services:
+  backend:
+    environment:
+      APP_ENV: production
+      AUTH_ENABLED: "true"
+      PHI_ENCRYPTION_ENABLED: "true"
+      SHOW_ROLE_HELP: "false"
+    restart: always
+
+  worker:
+    environment:
+      APP_ENV: production
+      PHI_ENCRYPTION_ENABLED: "true"
+    restart: always

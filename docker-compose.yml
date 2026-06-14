@@ -1,0 +1,170 @@
+# Single-VM deployment stack. One `docker compose up --build` brings up the whole
+# system on one host; only the frontend (:80) is published. See README "Deploy".
+#
+# Operational guardrails applied to every service:
+#   - json-file logging capped at 10m x 3 files so container logs can't fill the VM disk.
+#   - mem_limit / cpus so no single container can starve the host (tune to your VM size).
+# Both are honoured by `docker compose up` (non-swarm).
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    cpus: 1.0
+    environment:
+      # Credentials are env-driven with a dev-friendly default of `plum`. For a real
+      # deploy, set a strong POSTGRES_PASSWORD (and optionally user/db) in the root .env;
+      # the backend/worker DATABASE_URL below is composed from the same vars, so they stay
+      # in sync with no code change.
+      POSTGRES_USER: ${POSTGRES_USER:-plum}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-plum}
+      POSTGRES_DB: ${POSTGRES_DB:-claims}
+    # Bind to localhost only: reachable for local dev, NOT exposed on 0.0.0.0 in a deploy.
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-plum}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    cpus: 0.5
+    # Publish a host port so `celery`/uvicorn running locally (outside docker) can
+    # use the same broker. A gitignored docker-compose.override.yml may remap this;
+    # don't depend on it. Bound to localhost only (not exposed on 0.0.0.0 in a deploy).
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    cpus: 2.0
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-plum}:${POSTGRES_PASSWORD:-plum}@db:5432/${POSTGRES_DB:-claims}
+      REDIS_URL: redis://redis:6379/0
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_PRO_MODEL: ${GEMINI_PRO_MODEL:-gemini-2.5-pro}
+      # Production toggles — all default to today's dev behaviour, so a plain
+      # `docker compose up` is unchanged. Set these in .env to deploy in prod mode.
+      APP_ENV: ${APP_ENV:-development}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      JWT_SECRET: ${JWT_SECRET:-dev-insecure-change-me}
+      PHI_ENCRYPTION_ENABLED: ${PHI_ENCRYPTION_ENABLED:-false}
+      PHI_ENCRYPTION_KEY: ${PHI_ENCRYPTION_KEY:-}
+      CONFIDENCE_CALIBRATION_ENABLED: ${CONFIDENCE_CALIBRATION_ENABLED:-false}
+      SHOW_ROLE_HELP: ${SHOW_ROLE_HELP:-false}
+      OPS_DEFAULT_PASSWORD: ${OPS_DEFAULT_PASSWORD:-ops-dev-password}
+      MEMBER_DEFAULT_PASSWORD: ${MEMBER_DEFAULT_PASSWORD:-member-dev-password}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # python:3.12-slim may lack curl, so probe /api/health with a Python one-liner.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+    volumes:
+      - claimstorage:/srv/backend/storage
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    cpus: 2.0
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-plum}:${POSTGRES_PASSWORD:-plum}@db:5432/${POSTGRES_DB:-claims}
+      REDIS_URL: redis://redis:6379/0
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_PRO_MODEL: ${GEMINI_PRO_MODEL:-gemini-2.5-pro}
+      # Same prod toggles as backend (the worker runs the same pipeline + persistence).
+      APP_ENV: ${APP_ENV:-development}
+      PHI_ENCRYPTION_ENABLED: ${PHI_ENCRYPTION_ENABLED:-false}
+      PHI_ENCRYPTION_KEY: ${PHI_ENCRYPTION_KEY:-}
+      CONFIDENCE_CALIBRATION_ENABLED: ${CONFIDENCE_CALIBRATION_ENABLED:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - claimstorage:/srv/backend/storage
+  # OPTIONAL self-hosted object storage. MinIO is an OSS, S3-compatible container
+  # (like Postgres/Redis here), not a third-party service. The app defaults to
+  # OBJECT_STORE=local and runs fully without this service; set OBJECT_STORE=minio
+  # (+ the MINIO_* env vars) on backend/worker to route uploads through the bucket.
+  # Behind a compose profile so it only starts with `docker compose --profile minio up`.
+  # Console: http://localhost:9001  API: http://localhost:9000
+  minio:
+    image: minio/minio
+    profiles: ["minio"]
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    cpus: 1.0
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    # Bound to localhost only (not exposed on 0.0.0.0 in a deploy).
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    volumes: [minio-data:/data]
+    # The `mc ready` probe is unreliable; use MinIO's HTTP liveness endpoint instead.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 128m
+    cpus: 0.5
+    # Non-root nginx listens on 8080 inside the container; published as :80 on the host.
+    ports: ["80:8080"]
+    # Wait for the backend to be HEALTHY (not just started) so nginx never 502s during boot.
+    depends_on:
+      backend:
+        condition: service_healthy
+    # Probe 127.0.0.1 (not localhost): nginx listens IPv4-only, but localhost resolves
+    # to ::1 first and busybox wget does not fall back to the next address.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+volumes:
+  pgdata:
+  claimstorage:
+  minio-data:

@@ -1,0 +1,14 @@
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/storage
+backend/storage
+frontend/dist
+.git
+docker-compose.override.yml
+*.log

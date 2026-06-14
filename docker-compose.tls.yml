@@ -1,0 +1,36 @@
+# HTTPS overlay (optional). Puts Caddy in front of the frontend; Caddy
+# auto-provisions and renews a Let's Encrypt certificate for $DOMAIN.
+#
+#   DOMAIN=claims.example.com \
+#     docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build
+#
+# Requirements: $DOMAIN's A/AAAA record points at this VM, and ports 80 + 443 are
+# open in the firewall (80 is needed for the ACME HTTP-01 challenge and redirects).
+# Caddy terminates TLS and reverse-proxies to the frontend over the internal network,
+# so the frontend no longer needs its own host port.
+services:
+  frontend:
+    ports: !override []          # reached via caddy on the internal network, not directly
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 128m
+    cpus: 0.5
+    depends_on:
+      frontend:
+        condition: service_healthy
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to the FQDN that resolves to this VM}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data          # persisted certs/keys — survives restarts (avoids ACME rate limits)
+      - caddy-config:/config
+volumes:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+# Runtime artifacts (uploaded docs, rendered fixtures, eval outputs)
+storage/
+# Real-document eval datasets (downloaded sample; report is committed, raw data is not)
+eval_datasets/
+# Local Docker Compose overrides (e.g. host port remaps)
+docker-compose.override.yml
+# Node
+node_modules/
+dist/
+# Playwright scratch
+.playwright-mcp/
+*.jpeg
+*.png
+# OS
+.DS_Store

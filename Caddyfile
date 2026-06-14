@@ -1,0 +1,11 @@
+# Used only by the optional HTTPS overlay (docker-compose.tls.yml).
+# Caddy serves {$DOMAIN} over auto-provisioned Let's Encrypt TLS and reverse-proxies
+# every request (SPA + /api) to the unprivileged frontend nginx on its 8080 port.
+{$DOMAIN} {
+	encode gzip
+	# Large medical uploads (PDF/scans) — match nginx's client_max_body_size.
+	request_body {
+		max_size 25MB
+	}
+	reverse_proxy frontend:8080
+}
