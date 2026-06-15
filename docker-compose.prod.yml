@@ -19,12 +19,22 @@
 # balancer (see docs/architecture.md §11). This overlay only sets the secure runtime
 # flags; it does not, by itself, provision those managed services.
 services:
+  # Close the datastore host ports in production: the app reaches db/redis over the
+  # compose network (db:5432 / redis:6379), so they must NOT be published to the host
+  # in a deploy. (Also avoids clashing with anything else bound to :5432 locally.)
+  db:
+    ports: !override []
+  redis:
+    ports: !override []
+
   backend:
     environment:
       APP_ENV: production
       AUTH_ENABLED: "true"
       PHI_ENCRYPTION_ENABLED: "true"
-      SHOW_ROLE_HELP: "false"
+      # SHOW_ROLE_HELP is a login-page wayfinding flag (not security): left to .env
+      # so a review/demo deploy can surface the Operator|Member toggle. Set false in
+      # .env for a true-prod deployment.
     restart: always
 
   worker:

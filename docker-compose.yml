@@ -75,6 +75,11 @@ services:
       SHOW_ROLE_HELP: ${SHOW_ROLE_HELP:-false}
       OPS_DEFAULT_PASSWORD: ${OPS_DEFAULT_PASSWORD:-ops-dev-password}
       MEMBER_DEFAULT_PASSWORD: ${MEMBER_DEFAULT_PASSWORD:-member-dev-password}
+      # Prod hardening: restricted CORS, structured JSON logs, and the per-IP LLM
+      # rate limit on paid endpoints. Dev-safe defaults so a plain `up` is unchanged.
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
+      JSON_LOGS: ${JSON_LOGS:-false}
+      LLM_RATE_LIMIT_ENABLED: ${LLM_RATE_LIMIT_ENABLED:-false}
     depends_on:
       db:
         condition: service_healthy
@@ -109,6 +114,7 @@ services:
       PHI_ENCRYPTION_ENABLED: ${PHI_ENCRYPTION_ENABLED:-false}
       PHI_ENCRYPTION_KEY: ${PHI_ENCRYPTION_KEY:-}
       CONFIDENCE_CALIBRATION_ENABLED: ${CONFIDENCE_CALIBRATION_ENABLED:-false}
+      JSON_LOGS: ${JSON_LOGS:-false}
     depends_on:
       db:
         condition: service_healthy
