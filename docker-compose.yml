@@ -27,8 +27,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-plum}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-plum}
       POSTGRES_DB: ${POSTGRES_DB:-claims}
-    # Bind to localhost only: reachable for local dev, NOT exposed on 0.0.0.0 in a deploy.
-    ports: ["127.0.0.1:5432:5432"]
+    # Secure by default: NOT published to the host. The backend/worker reach Postgres
+    # over the compose network at db:5432. For local host access (psql / host-side
+    # tooling), add a gitignored docker-compose.override.yml:
+    #   services: { db: { ports: ["127.0.0.1:5432:5432"] } }
+    expose: ["5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-plum}"]
@@ -41,10 +44,10 @@ services:
     logging: *default-logging
     mem_limit: 256m
     cpus: 0.5
-    # Publish a host port so `celery`/uvicorn running locally (outside docker) can
-    # use the same broker. A gitignored docker-compose.override.yml may remap this;
-    # don't depend on it. Bound to localhost only (not exposed on 0.0.0.0 in a deploy).
-    ports: ["127.0.0.1:6379:6379"]
+    # Secure by default: NOT published to the host. Reached over the compose network at
+    # redis:6379. For a host-side celery/uvicorn against this broker, add a gitignored
+    # docker-compose.override.yml: services: { redis: { ports: ["127.0.0.1:6379:6379"] } }
+    expose: ["6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
