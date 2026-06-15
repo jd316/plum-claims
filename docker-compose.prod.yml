@@ -32,9 +32,10 @@ services:
       APP_ENV: production
       AUTH_ENABLED: "true"
       PHI_ENCRYPTION_ENABLED: "true"
-      # SHOW_ROLE_HELP is a login-page wayfinding flag (not security): left to .env
-      # so a review/demo deploy can surface the Operator|Member toggle. Set false in
-      # .env for a true-prod deployment.
+      # True-prod login page: no Operator|Member wayfinding toggle. The overlay forces
+      # this OFF regardless of .env so a stray SHOW_ROLE_HELP=true can't leak into prod.
+      # For a review/demo deploy, drop this line (or use a separate review overlay).
+      SHOW_ROLE_HELP: "false"
     restart: always
 
   worker:
