@@ -24,8 +24,13 @@ roll() {                       # roll <tag>
   # Recreate and BLOCK until the app containers report healthy (avoids a health check
   # racing container startup). --no-build: use the pulled image, never build on the host.
   $COMPOSE up -d --no-build --wait --wait-timeout 180 || true
-  # Migrations on the now-running backend (additive/backward-compatible; no-op when current).
-  $COMPOSE exec -T backend alembic upgrade head || echo "(migrations: no-op or skipped)"
+  # Bounce Caddy so it re-resolves the (newly-recreated) frontend container's IP —
+  # otherwise it keeps proxying to a stale IP and 502s during the health window.
+  $COMPOSE restart caddy >/dev/null 2>&1 || true
+  # Migrations on the running backend, time-bounded so a lock can never hang the deploy
+  # (no-op when the schema is already current).
+  timeout 90 $COMPOSE exec -T backend alembic upgrade head >/dev/null 2>&1 || echo "(migrations: no-op or skipped)"
+  sleep 3
 }
 
 healthy() {                    # local health check via Caddy (no NAT hairpin, real SNI/cert)
