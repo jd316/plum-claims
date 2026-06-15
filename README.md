@@ -44,6 +44,23 @@ cp .env.example .env          # then edit .env and set GEMINI_API_KEY=<your key>
 docker compose up --build     # open http://localhost
 ```
 
+### Common tasks (`make`)
+
+A root `Makefile` wraps the full lifecycle — run `make help` to list everything (Linux/macOS;
+on Windows use WSL):
+
+| Command | What it does |
+|---------|--------------|
+| `make setup` | Create the backend venv + install backend (`.[dev]`) and frontend deps |
+| `make dev` | Bring the stack up in open/dev mode on http://localhost |
+| `make prod` | Bring the stack up in **true-prod** mode (auth + PHI encryption; reads root `.env`) |
+| `make ps` / `make logs` / `make down` | Stack status / tail logs / stop |
+| `make check` | Everything CI runs — ruff + pyright + backend tests + frontend build/lint |
+| `make test` / `make test-live` | Backend deterministic suite / live-Gemini suite |
+| `make eval` | Run the 12 test cases through the live pipeline → `docs/eval_report.md` |
+| `make migrate` | Apply DB migrations (`alembic upgrade head`) |
+| `make tls DOMAIN=…` | Prod + HTTPS via Caddy |
+
 Open **http://localhost** — nginx serves the React app and reverse-proxies `/api` to the
 backend. The vision pipeline is fully live, so the host needs network access to the Gemini API.
 
