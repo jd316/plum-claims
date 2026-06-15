@@ -12,11 +12,17 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+# Hardening applied to every service (defence-in-depth on top of running as non-root):
+# block any process from gaining new privileges via setuid/setgid binaries.
+x-security-opt: &no-new-privs
+  - no-new-privileges:true
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     logging: *default-logging
+    security_opt: *no-new-privs
     mem_limit: 512m
     cpus: 1.0
     environment:
@@ -42,6 +48,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     logging: *default-logging
+    security_opt: *no-new-privs
     mem_limit: 256m
     cpus: 0.5
     # Secure by default: NOT published to the host. Reached over the compose network at
@@ -59,6 +66,7 @@ services:
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     logging: *default-logging
+    security_opt: *no-new-privs
     mem_limit: 1g
     cpus: 2.0
     environment:
@@ -103,9 +111,19 @@ services:
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     logging: *default-logging
+    security_opt: *no-new-privs
     mem_limit: 1g
     cpus: 2.0
     command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=4
+    # Liveness: ping THIS worker node via Celery's control protocol (needs the broker +
+    # a registered worker). Detects a hung/deregistered worker the same way the other
+    # services are health-gated. start_period covers worker boot + broker registration.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d celery@$$(hostname) || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-plum}:${POSTGRES_PASSWORD:-plum}@db:5432/${POSTGRES_DB:-claims}
       REDIS_URL: redis://redis:6379/0
@@ -132,10 +150,12 @@ services:
   # Behind a compose profile so it only starts with `docker compose --profile minio up`.
   # Console: http://localhost:9001  API: http://localhost:9000
   minio:
-    image: minio/minio
+    # Digest-pinned (was the floating implicit ":latest") for reproducible builds.
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     profiles: ["minio"]
     restart: unless-stopped
     logging: *default-logging
+    security_opt: *no-new-privs
     mem_limit: 512m
     cpus: 1.0
     command: server /data --console-address ":9001"
@@ -157,6 +177,7 @@ services:
       dockerfile: frontend/Dockerfile
     restart: unless-stopped
     logging: *default-logging
+    security_opt: *no-new-privs
     mem_limit: 128m
     cpus: 0.5
     # Non-root nginx listens on 8080 inside the container; published as :80 on the host.
