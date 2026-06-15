@@ -75,6 +75,13 @@ eval: ## Run the 12 test cases through the live pipeline -> docs/eval_report.md
 	cd backend && .venv/bin/python -c "from app.evalrunner.runner import run_all, to_markdown; open('../docs/eval_report.md','w').write(to_markdown(run_all()))"
 	@echo "Wrote docs/eval_report.md"
 
+# ---- Demo data ------------------------------------------------------------
+seed-demo: ## Persist the 12 cases into the running stack (populates member + Ops views)
+	$(COMPOSE) exec -T backend python scripts/seed_demo_data.py --clear
+
+clear-demo: ## Wipe the seeded demo claims + audit log from the running stack
+	$(COMPOSE) exec -T backend python scripts/seed_demo_data.py --clear-only
+
 # ---- Clean ----------------------------------------------------------------
 clean: ## Stop stack + REMOVE volumes, venv, node_modules, caches (destructive)
 	$(COMPOSE) down -v || true
@@ -84,4 +91,4 @@ clean: ## Stop stack + REMOVE volumes, venv, node_modules, caches (destructive)
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*## "} /^[a-zA-Z0-9_-]+:.*## /{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-.PHONY: setup migrate test test-live lint types web-check check dev prod tls ps logs down db api web eval clean help
+.PHONY: setup migrate test test-live lint types web-check check dev prod tls ps logs down db api web eval clean seed-demo clear-demo help
