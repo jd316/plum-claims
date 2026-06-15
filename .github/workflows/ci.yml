@@ -38,7 +38,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.lock
-          pip install -e .
+          # ".[dev]" pulls the test toolchain (pytest, pytest-timeout, httpx, hypothesis)
+          # — these live in the optional dev extra, not requirements.lock (runtime only).
+          pip install -e ".[dev]"
           pip install ruff pyright
       - name: Lint (ruff)
         run: ruff check .
