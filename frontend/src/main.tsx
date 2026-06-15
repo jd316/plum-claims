@@ -5,15 +5,18 @@ import './index.css'
 import App from './App.tsx'
 import { AuthProvider } from './auth.tsx'
 import { ThemeProvider } from './theme.tsx'
+import ErrorBoundary from './components/ErrorBoundary.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ThemeProvider>
-      <BrowserRouter>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
-      </BrowserRouter>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </BrowserRouter>
+      </ThemeProvider>
+    </ErrorBoundary>
   </StrictMode>,
 )
