@@ -67,6 +67,20 @@ backend. The vision pipeline is fully live, so the host needs network access to 
 > Docker Compose auto-reads the root `.env` for `${GEMINI_API_KEY}` interpolation, so no manual
 > `export` step is needed. (For non-Docker local dev the backend reads `backend/.env` instead.)
 
+### CI/CD
+
+Two GitHub Actions workflows gate and ship every change to `main`:
+
+- **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) — backend (ruff · pyright · pytest),
+  frontend (tsc · eslint · vite build), and a Trivy vulnerability scan, on every push/PR.
+- **CD** ([`.github/workflows/cd.yml`](.github/workflows/cd.yml)) — on CI success on `main`: build the
+  backend + frontend images, push to **GHCR** tagged by commit SHA, then deploy to the EC2 host via
+  **AWS SSM** (GitHub authenticates with a short-lived **OIDC** role — *no static AWS keys or SSH key in
+  GitHub*). On the host, [`scripts/deploy.sh`](scripts/deploy.sh) pulls the images, waits for the
+  containers' healthchecks, runs migrations, and **rolls back to the previous tag** if the new
+  containers never become healthy. Images run via [`docker-compose.deploy.yml`](docker-compose.deploy.yml)
+  (the host only ever pulls, never builds).
+
 ### Deploy
 
 > **Full step-by-step single-VM prod deploy:** [`docs/DEPLOY.md`](docs/DEPLOY.md) (provision → secrets →
