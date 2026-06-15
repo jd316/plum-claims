@@ -12,3 +12,4 @@ frontend/dist
 .git
 docker-compose.override.yml
 *.log
+.vscode
