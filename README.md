@@ -137,7 +137,9 @@ loose `>=` ranges in `pyproject.toml` remain the human-facing declaration. To re
 changing dependencies, install the project in a clean `python:3.12-slim` and
 `pip freeze --exclude-editable > backend/requirements.lock`.
 
-**Deployed URL:** `<to be added>`
+**Deployed URL:** **https://claims.zerocut.live** — live, true-prod (JWT auth + RBAC + at-rest
+PHI encryption), HTTPS via Caddy + Let's Encrypt. Sign in as operator (`ops`) or member
+(`EMP001`…) using the seeded review credentials.
 
 ---
 
