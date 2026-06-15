@@ -1,0 +1,16 @@
+# CD overlay — run pre-built GHCR images instead of building on the box.
+# Used by scripts/deploy.sh on the EC2 host:
+#   TAG=<git-sha> docker compose ... pull && docker compose ... up -d --no-build
+# The base `build:` stays defined, but deploy.sh uses `pull` + `up --no-build`, so the
+# image tag is authoritative and the host only ever pulls (never builds). Images are
+# public on GHCR (no registry auth needed). Version-proof: no custom merge tags.
+services:
+  backend:
+    image: ghcr.io/jd316/plum-claims-backend:${TAG:-latest}
+    pull_policy: always
+  worker:
+    image: ghcr.io/jd316/plum-claims-backend:${TAG:-latest}
+    pull_policy: always
+  frontend:
+    image: ghcr.io/jd316/plum-claims-frontend:${TAG:-latest}
+    pull_policy: always
