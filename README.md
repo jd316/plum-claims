@@ -69,12 +69,13 @@ backend. The vision pipeline is fully live, so the host needs network access to 
 
 ### CI/CD
 
-Two GitHub Actions workflows gate and ship every change to `main`:
+One GitHub Actions workflow ([`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)) gates and
+ships every change to `main`:
 
-- **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) — backend (ruff · pyright · pytest),
-  frontend (tsc · eslint · vite build), and a Trivy vulnerability scan, on every push/PR.
-- **CD** ([`.github/workflows/cd.yml`](.github/workflows/cd.yml)) — on CI success on `main`: build the
-  backend + frontend images, push to **GHCR** tagged by commit SHA, then deploy to the EC2 host via
+- **CI jobs** — backend (ruff · pyright · pytest), frontend (tsc · eslint · vite build), and a Trivy
+  vulnerability scan, on every push/PR.
+- **`deploy` job** — gated on the three test jobs (`needs:`) and limited to pushes on `main`: build the
+  backend + frontend images, push to the registry tagged by commit SHA, then deploy to the EC2 host via
   **AWS SSM** (GitHub authenticates with a short-lived **OIDC** role — *no static AWS keys or SSH key in
   GitHub*). On the host, [`scripts/deploy.sh`](scripts/deploy.sh) pulls the images, waits for the
   containers' healthchecks, runs migrations, and **rolls back to the previous tag** if the new
