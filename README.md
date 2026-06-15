@@ -280,6 +280,21 @@ its expected outcome.
 - **API:** `POST /api/eval/run` — returns the per-case results and writes the report.
 - **Report:** [`docs/eval_report.md`](docs/eval_report.md) (currently **12/12 MATCH**).
 
+### Beyond the 12 cases — additional evals
+
+The 12 provided cases use synthetic fixtures, so we also evaluate against **real-world data and
+edge behaviour** (not required by the brief):
+
+- **Extraction robustness on REAL public documents** — runs the production vision extractor over
+  real datasets (e.g. CORD v2 receipts) scored against ground truth.
+  [`docs/extraction_robustness_report.md`](docs/extraction_robustness_report.md). Datasets are
+  fetched reproducibly via [`backend/scripts/download_eval_datasets.py`](backend/scripts/download_eval_datasets.py)
+  (not committed — license-safe, see [`docs/eval_datasets_attribution.md`](docs/eval_datasets_attribution.md)).
+- **Decision-quality eval** over synthetic adversarial claims —
+  [`docs/decision_eval_report.md`](docs/decision_eval_report.md).
+- **Member-message quality** (specificity/actionability of user-facing errors) —
+  [`docs/message_quality_report.md`](docs/message_quality_report.md).
+
 ---
 
 ## Repo map
