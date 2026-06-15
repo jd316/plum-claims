@@ -2,8 +2,12 @@ name: CI/CD
 
 on:
   pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
   push:
     branches: [main]
+    # Docs-only changes don't build/test/deploy (a README edit shouldn't redeploy prod).
+    # A commit that also touches code still runs the full pipeline.
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
 
 # One run per branch: a newer push cancels the older in-progress run (so we never
 # build/test/deploy a superseded commit, and two deploys never run at once).
