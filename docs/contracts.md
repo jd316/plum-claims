@@ -229,38 +229,126 @@ All five share `RuleContext` (`app/rules/base.py`) and the same shape:
 
 ---
 
-## 13. Persistence — `app/services/persistence.py`
+## 13. Persistence — `app/services/persistence.py`, `audit.py`, `policy_store.py`, `auth.py`
 
-- **Schema:** one SQLAlchemy table **`claims`** — `id` (PK), `created_at`, `member_id`,
-  `category`, `blocked`, `status`, `approved_amount`, `confidence`, `submission` (JSON),
-  `result` (JSON — full `ClaimResult`: decision + trace + failures).
-- **Functions:**
+- **Schema (4 tables, managed by Alembic migrations `0001`–`0007`):**
+  - **`claims`** (`0001`/`0002`) — `id` (PK), `created_at` (timestamptz), `member_id`,
+    `category`, `blocked`, `status`, `approved_amount`, `confidence`, `submission` (JSON),
+    `result` (JSON — full `ClaimResult`: decision + trace + failures). The trace is stored as a
+    single immutable JSON document; `0007` adds the per-step trace-entry fields.
+  - **`users`** (`0003`) — `id` (PK), `username`, `password_hash`, `role` (`OPS`|`MEMBER`),
+    `member_id?`, `created_at`. Backs auth (`app/services/auth.py`).
+  - **`audit_log`** (`0004`) — append-only: `id` (PK), `claim_id`, `actor`, `action`,
+    `decision_status?`, `approved_amount?`, `reason_codes` (JSON), `created_at`. One row per
+    decision / operator-override / correction / outcome-mark (`app/services/audit.py`).
+  - **`policy_versions`** (`0005`) — `id` (PK), `version_no`, `label?`, `policy_json` (JSON),
+    `policy_text?`, `is_active`, `created_by?`, `created_at`. Backs the policy studio /
+    versioning endpoints (`app/services/policy_store.py`); exactly one row has `is_active=true`.
+- **Functions (persistence.py):**
   - `init_db() -> None` — create tables (called on FastAPI startup).
   - `save_claim(sub: ClaimSubmission, result: ClaimResult) -> str` — persist, return `claim_id`.
   - `get_claim(claim_id: str) -> dict | None` — the stored `result` JSON, or `None`.
   - `list_claims() -> list[dict]` — newest-first summaries (≤100): claim_id, created_at,
     member_id, category, blocked, status, approved_amount, confidence.
-- **Errors:** SQLAlchemy/DB errors propagate (DB is required, not degraded around).
-- **Note:** the as-built persistence denormalizes into one JSONB-bearing `claims` table (the
-  design spec's 3-table split was simplified to keep the trace immutable as a single document).
+- **Errors:** SQLAlchemy/DB errors propagate (DB is required, not degraded around). The audit
+  writer is best-effort (a failed audit insert logs a warning and never fails a completed claim).
+- **Note:** the `claims` table denormalizes the trace into one JSON document (the design spec's
+  3-table claim split was simplified to keep the trace immutable as a single document); auth,
+  audit, and policy-versioning each get their own first-class table.
 
 ---
 
 ## 14. REST API — `app/main.py` (FastAPI)
 
-| Method · Path | Request | Response | Errors |
-|---------------|---------|----------|--------|
-| `GET /api/health` | — | `{status: "ok"}` | — |
-| `GET /api/members` | — | `[{member_id, name, relationship}]` | — |
-| `POST /api/claims` | **multipart**: `payload` (Form, JSON string of `ClaimSubmission` minus `documents`) + `files` (≥1 uploads) | `ClaimResult` (JSON): `{claim_id, blocked, problems[], decision, trace[], failures[]}` | 422 on bad form/JSON; pipeline failures are degraded into the result, not raised |
-| `GET /api/claims` | — | `list_claims()` summaries | — |
-| `GET /api/claims/{id}` | path `claim_id` | stored `ClaimResult` JSON | **404** if not found |
-| `GET /api/eval/cases` | — | the 12 raw test cases | — |
-| `POST /api/eval/run` | — | `[{case_id, case_name, matched, notes[], result}]`; also writes `docs/eval_report.md` | — |
+**Auth model:** JWT bearer (cookie or `Authorization` header). `USER` = any authenticated
+principal (member or operator); `OPS` = operator-only (RBAC enforced via the `require_user` /
+`require_ops` dependencies); `opt` = works with or without a token. Members submit and view
+their own claims; operators review, correct, and decide — operators do **not** submit (RBAC).
+All authenticated routes return **401** when the token is missing/invalid and **403** when the
+role is insufficient; these rows are omitted from the per-route Errors column for brevity.
+
+### Infra / health
+| Method · Path | Auth | Request | Response | Errors |
+|---|---|---|---|---|
+| `GET /metrics` | — | — | Prometheus exposition text | — |
+| `GET /api/health` | — | — | `{status: "ok"}` | — |
+| `GET /api/ready` | — | — | `{ready: bool, db, redis}` | **503** if a hard dependency is down |
+
+### Auth — `/api/auth/*`
+| Method · Path | Auth | Request | Response | Errors |
+|---|---|---|---|---|
+| `POST /api/auth/login` | — | `{username, password}` | `{token, role, member_id?}` | **401** bad creds; **429** rate-limited |
+| `POST /api/auth/logout` | — | bearer token | `{ok: true}` | — (token added to revocation list) |
+| `GET /api/auth/me` | opt | — | `{authenticated, role?, member_id?}` | — |
+| `GET /api/auth/config` | — | — | `{auth_enabled, wayfinding}` | — |
+
+### Claim submission & intake
+| Method · Path | Auth | Request | Response | Errors |
+|---|---|---|---|---|
+| `GET /api/members` | OPS | — | `[{member_id, name, relationship}]` | — |
+| `GET /api/policy/document-requirements` | USER | — | required/optional doc types per category | — |
+| `POST /api/documents/classify` | USER | one `file` (multipart) | `{doc_type, quality, status: ok\|wrong\|unreadable\|unknown}` (pre-submission shift-left; LLM hiccup degrades to `unknown` 200, never 500) | **413** too large; **415** bad type |
+| `POST /api/claims` | USER | **multipart**: `payload` (Form, JSON `ClaimSubmission` minus `documents`) + `files` (≥1) | `ClaimResult`: `{claim_id, blocked, problems[], decision, trace[], failures[]}` | **413/415** bad upload; **422** bad form/JSON; pipeline failures degrade into the result, not raised. Honors `Idempotency-Key` |
+| `POST /api/claims/async` | USER | as `POST /api/claims` | `{job_id}` (202) — falls back to synchronous result if the broker is down | as above |
+| `GET /api/jobs/{job_id}` | USER | path `job_id` | `{status: queued\|running\|done\|failed, result?}` | **404** unknown job; **403** not the owner |
+
+### Claim read / explainability (Observability)
+| Method · Path | Auth | Request | Response | Errors |
+|---|---|---|---|---|
+| `GET /api/claims` | USER | — | `list_claims()` summaries (member-scoped for members) | — |
+| `GET /api/claims/{id}` | USER | path `claim_id` | stored `ClaimResult` JSON | **404** not found; **403** not owner |
+| `GET /api/claims/{id}/documents` | USER | path | `[{file_id, doc_type, file_name, url}]` | **404** |
+| `GET /api/claims/{id}/documents/{file_id}` | USER | path | the stored document bytes (decrypted) | **404** |
+| `POST /api/claims/{id}/replay` | USER | path | `{reproduced: bool, decision, trace}` — re-runs the deterministic pipeline on the stored facts and checks the result is identical | **404** |
+| `GET /api/claims/{id}/counterfactuals` | USER | path | `[{factor, change, would_become}]` — minimal edits that flip the decision | **404** |
+| `POST /api/claims/{id}/what-if` | USER | `{overrides}` | recomputed decision under hypothetical facts | **404**; **422** |
+| `GET /api/claims/{id}/audit` | OPS | path | the append-only `audit_log` rows for the claim | **404** |
+
+### Human-in-the-loop (operator)
+| Method · Path | Auth | Request | Response | Errors |
+|---|---|---|---|---|
+| `POST /api/claims/{id}/correct` | OPS | `{field, value, reason}` | corrected `ClaimResult` (re-adjudicated); writes audit + correction history | **404**; **422** |
+| `POST /api/claims/{id}/decision` | OPS | `{status, approved_amount?, note}` | operator final decision/override; writes audit | **404**; **422** |
+| `POST /api/claims/{id}/mark-outcome` | OPS | `{outcome}` | records the realized outcome (feeds calibration) | **404**; **422** |
+
+### Assistant / estimation (LLM-backed)
+| Method · Path | Auth | Request | Response | Errors |
+|---|---|---|---|---|
+| `POST /api/estimate` | USER | `{category, claimed_amount, hospital_name?, …}` | pre-submission payout estimate with breakdown | **422** |
+| `POST /api/claims/{id}/ask` | USER | `{question}` | grounded NL answer about that claim's decision/trace | **404**; **422** |
+| `POST /api/policy/ask` | USER | `{question}` | grounded NL answer about policy terms (RAG) | **422** |
+| `POST /api/claims/parse` | USER | `{text}` | structured `ClaimSubmission` fields parsed from free-text intake | **422** |
+
+### Ops dashboard
+| Method · Path | Auth | Response |
+|---|---|---|
+| `GET /api/ops/analytics` | OPS | decision/volume/confidence aggregates |
+| `GET /api/ops/worklist` | OPS | the manual-review / needs-input queue |
+| `GET /api/ops/fraud` | OPS | flagged fraud signals across claims |
+| `GET /api/ops/improvement-proposals` | OPS | self-improvement proposals from outcome analysis |
+
+### Eval
+| Method · Path | Auth | Request | Response |
+|---|---|---|---|
+| `GET /api/eval/cases` | OPS | — | the 12 raw test cases |
+| `POST /api/eval/run` | OPS | — | `[{case_id, case_name, matched, notes[], result}]`; also writes `docs/eval_report.md` |
+| `POST /api/eval/message-quality` | OPS | — | member-message quality scores; writes `docs/message_quality_report.md` |
+
+### Policy studio / versioning
+| Method · Path | Auth | Request | Response | Errors |
+|---|---|---|---|---|
+| `GET /api/policy/current` | OPS | — | the active policy (json + text) | — |
+| `GET /api/policy/versions` | OPS | — | `[{id, version_no, label, is_active, created_at}]` | — |
+| `GET /api/policy/versions/{id}` | OPS | path | one version's full `policy_json` | **404** |
+| `GET /api/policy/versions/{id}/diff/{other_id}` | OPS | path | structured diff between two versions | **404** |
+| `POST /api/policy/versions` | OPS | `{policy_json, label}` | created version (inactive) | **422** invalid policy |
+| `POST /api/policy/versions/{id}/activate` | OPS | path | activates the version (hot-reload, invalidates engine cache) | **404** |
+| `POST /api/policy/preview` | OPS | `{policy_json, claim_id}` | re-adjudicates a stored claim under a candidate policy without activating it | **404**; **422** |
 
 **Notes:** uploaded files are stored under `storage/uploads/{claim_id}/F{nnn}{ext}` with a
-**server-generated** filename (path-traversal safe); the original filename is kept only as
-display metadata.
+**server-generated** filename (path-traversal safe) and **encrypted at rest**; the original
+filename is kept only as display metadata. Every claim-mutating operator action
+(`/correct`, `/decision`, `/mark-outcome`) writes an `audit_log` row.
 
 ---
 
