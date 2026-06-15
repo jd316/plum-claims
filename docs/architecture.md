@@ -546,6 +546,19 @@ correct via an equivalent mechanism, so these are deliberate readings rather tha
   when auth is on (`tests/test_ratelimit.py`).
 - **Production posture** — `docker-compose.prod.yml` overlay turns on auth + at-rest PHI encryption in
   `APP_ENV=production`, where the boot check forces strong secrets to be supplied.
+- **Container hardening** — every service runs **non-root**, with `no-new-privileges`; the stateless
+  app containers (backend/worker/frontend) additionally `cap_drop: [ALL]`. Datastores/ports are not
+  host-published (reached over the compose network). The two genuinely floating base images
+  (`nginx-unprivileged`, `minio`) are **digest-pinned**; CI runs a non-blocking Trivy scan for fixable
+  HIGH/CRITICAL dependency CVEs.
+  - *Conscious trade-offs (deliberately not done):* (1) the remaining bases use **minor-version tags**
+    (`postgres:16-alpine`, `python:3.12-slim`, …) rather than digest pins, so security patches keep
+    flowing without a digest-bump bot — full digest-pinning is the gold standard but trades away
+    auto-patching, so it pairs with the CVE scan instead. (2) `cap_drop: [ALL]` is **not** applied to
+    Postgres/Redis, whose entrypoints need init-time caps (CHOWN/SETUID/…) to drop to their service
+    user; `no-new-privileges` covers them. (3) Secrets are passed via env (visible only to host/root,
+    not the network) rather than Docker file-secrets — for a single trusted VM, encrypted EBS + a
+    root-only `.env` is the chosen boundary; SSM/Secrets Manager is the step-up if operators/rotation grow.
 
 ---
 

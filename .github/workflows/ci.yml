@@ -69,3 +69,23 @@ jobs:
         run: npx eslint src
       - name: Build
         run: npm run build
+
+  security-scan:
+    name: security (trivy vuln scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Supply-chain / vulnerability scan of the repo: Python (requirements.lock) and
+      # npm (package-lock.json) dependencies plus Dockerfile/compose misconfigurations.
+      # Non-blocking by design (exit-code 0): base images carry unfixable CVEs, so we
+      # REPORT high/critical FIXABLE issues in the job log without failing the pipeline.
+      # Tighten exit-code to 1 once the surfaced findings are triaged.
+      - name: Trivy scan (deps + IaC, fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          format: table

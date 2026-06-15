@@ -103,6 +103,9 @@ services:
       timeout: 3s
       retries: 15
       start_period: 10s
+    # Stateless app container running as non-root on a high port — needs no Linux
+    # capabilities, so drop them all (defence-in-depth beyond no-new-privileges).
+    cap_drop: ["ALL"]
     volumes:
       - claimstorage:/srv/backend/storage
   worker:
@@ -124,6 +127,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    # Stateless app container (non-root, no listening port) — drop all capabilities.
+    cap_drop: ["ALL"]
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-plum}:${POSTGRES_PASSWORD:-plum}@db:5432/${POSTGRES_DB:-claims}
       REDIS_URL: redis://redis:6379/0
@@ -178,6 +183,8 @@ services:
     restart: unless-stopped
     logging: *default-logging
     security_opt: *no-new-privs
+    # nginx-unprivileged runs as non-root on 8080 — no capabilities required.
+    cap_drop: ["ALL"]
     mem_limit: 128m
     cpus: 0.5
     # Non-root nginx listens on 8080 inside the container; published as :80 on the host.
