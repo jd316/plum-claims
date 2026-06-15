@@ -144,6 +144,22 @@ jobs:
             ${{ env.FRONTEND_IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Keep the registry tidy: retain the 10 most recent versions of each image
+      # (covers the current deploy + recent SHAs for rollback) and delete older ones.
+      - name: Prune old backend image versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: plum-claims-backend
+          package-type: container
+          min-versions-to-keep: 10
+      - name: Prune old frontend image versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: plum-claims-frontend
+          package-type: container
+          min-versions-to-keep: 10
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
