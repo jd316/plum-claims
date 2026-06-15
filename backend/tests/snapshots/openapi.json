@@ -493,7 +493,6 @@
     "/api/auth/config": {
       "get": {
         "description": "Public, no-auth config probe so the frontend knows whether to show the\nlogin wall + role gating. When auth_enabled is False (default), the UI renders\nevery page openly exactly as before; when True it requires login.",
-        "operationId": "auth_config_api_auth_config_get",
         "responses": {
           "200": {
             "content": {
@@ -513,7 +512,6 @@
     },
     "/api/auth/login": {
       "post": {
-        "operationId": "auth_login_api_auth_login_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -552,7 +550,6 @@
     "/api/auth/logout": {
       "post": {
         "description": "Revoke the presented bearer token (by jti) until its natural expiry, so a stolen\nor logged-out token stops working immediately. No-op when auth is off or no valid\ntoken is presented (always 200 \u2014 logout must never error).",
-        "operationId": "auth_logout_api_auth_logout_post",
         "parameters": [
           {
             "in": "header",
@@ -596,7 +593,6 @@
     },
     "/api/auth/me": {
       "get": {
-        "operationId": "auth_me_api_auth_me_get",
         "parameters": [
           {
             "in": "header",
@@ -640,7 +636,6 @@
     },
     "/api/claims": {
       "get": {
-        "operationId": "claims_list_api_claims_get",
         "parameters": [
           {
             "in": "header",
@@ -682,7 +677,6 @@
         "summary": "Claims List"
       },
       "post": {
-        "operationId": "submit_claim_api_claims_post",
         "parameters": [
           {
             "in": "header",
@@ -753,7 +747,6 @@
     "/api/claims/async": {
       "post": {
         "description": "Asynchronous submit (credible-scale path): validate + save files exactly like\nthe sync endpoint, then enqueue the claim on the Celery/Redis task queue and\nreturn immediately with a job_id the UI can poll via GET /api/jobs/{job_id}.\n\nGRACEFUL FALLBACK: if the broker is unreachable (Redis down / no worker), we do\nNOT 503 \u2014 we fall back to processing the claim synchronously in-request and\nreturn status \"completed\" with the full result. So the async endpoint always\nworks, even without a running worker; it just loses the off-thread benefit.",
-        "operationId": "submit_claim_async_api_claims_async_post",
         "parameters": [
           {
             "in": "header",
@@ -824,7 +817,6 @@
     "/api/claims/parse": {
       "post": {
         "description": "Natural-language claim intake. Extracts a DRAFT claim from the member's free\ntext (category/amount/hospital/date where inferable, nulls otherwise) to PRE-FILL\nthe submission form. It NEVER submits or decides \u2014 no pipeline runs here. Read-only.",
-        "operationId": "parse_claim_api_claims_parse_post",
         "parameters": [
           {
             "in": "header",
@@ -878,7 +870,6 @@
     },
     "/api/claims/{claim_id}": {
       "get": {
-        "operationId": "claim_detail_api_claims__claim_id__get",
         "parameters": [
           {
             "in": "path",
@@ -932,7 +923,6 @@
     "/api/claims/{claim_id}/ask": {
       "post": {
         "description": "Read-only, per-claim chat assistant. Answers the member's question GROUNDED\nONLY in this claim's stored decision/reasons/financial breakdown/trace \u2014 never\ninvents policy and never changes any decision. Unknown claim \u2192 404.",
-        "operationId": "claim_ask_api_claims__claim_id__ask_post",
         "parameters": [
           {
             "in": "path",
@@ -996,7 +986,6 @@
     "/api/claims/{claim_id}/audit": {
       "get": {
         "description": "Ops-only: the append-only audit trail (decision + correction history) for a\nclaim, oldest first. Tolerant of a missing audit_log table/row \u2192 returns [].",
-        "operationId": "claim_audit_api_claims__claim_id__audit_get",
         "parameters": [
           {
             "in": "path",
@@ -1050,7 +1039,6 @@
     "/api/claims/{claim_id}/correct": {
       "post": {
         "description": "Ops inline field correction: apply operator corrections to the stored\nextracted facts, RE-RUN the deterministic decision (no Gemini), and PERSIST the\ncorrected outcome. The corrected decision + extractions become the new state; the\nORIGINAL decision is appended to correction_history (never lost) and an audit row\nrecords the actor + changed fields + before\u2192after. Ops-only (open when auth off).\nReturns {before, after, changed_fields, changed_rules}. 404 unknown claim;\n422 for an unknown document/field or a malformed value.",
-        "operationId": "claim_correct_api_claims__claim_id__correct_post",
         "parameters": [
           {
             "in": "path",
@@ -1114,7 +1102,6 @@
     "/api/claims/{claim_id}/counterfactuals": {
       "get": {
         "description": "Counterfactual explanations: for a non-approved / partial claim, the MINIMAL\nchanges that would flip the decision, computed by REAL deterministic re-decides\n(no Gemini). APPROVED/PARTIAL claims return []. Hard exclusions are honest\n(achievable: false).",
-        "operationId": "claim_counterfactuals_api_claims__claim_id__counterfactuals_get",
         "parameters": [
           {
             "in": "path",
@@ -1168,7 +1155,6 @@
     "/api/claims/{claim_id}/decision": {
       "post": {
         "description": "An operator's final human decision on a claim \u2014 resolve a MANUAL_REVIEW or override\nthe AI outcome. Sets the decision, persists it, and writes an append-only audit row.\nThe note is REQUIRED (the decision rationale). Ops-only (open when auth off).\n404 unknown claim; 409 a blocked claim (no decision to resolve); 422 empty note.",
-        "operationId": "claim_operator_decision_api_claims__claim_id__decision_post",
         "parameters": [
           {
             "in": "path",
@@ -1231,7 +1217,6 @@
     },
     "/api/claims/{claim_id}/documents": {
       "get": {
-        "operationId": "claim_documents_api_claims__claim_id__documents_get",
         "parameters": [
           {
             "in": "path",
@@ -1284,7 +1269,6 @@
     },
     "/api/claims/{claim_id}/documents/{file_id}": {
       "get": {
-        "operationId": "claim_document_file_api_claims__claim_id__documents__file_id__get",
         "parameters": [
           {
             "in": "path",
@@ -1344,7 +1328,6 @@
         "summary": "Claim Document File"
       },
       "head": {
-        "operationId": "claim_document_file_api_claims__claim_id__documents__file_id__get",
         "parameters": [
           {
             "in": "path",
@@ -1407,7 +1390,6 @@
     "/api/claims/{claim_id}/mark-outcome": {
       "post": {
         "description": "Ops-only: label whether the system's automated decision on this claim was correct.\nThis is the RIGHT training signal for confidence calibration / conformal risk control \u2014\noperator agreement on the final decision, not extraction-field accuracy. We store the\ndecision's own confidence alongside the boolean so the recalibration job can fit on\n(confidence, correct) pairs. 404 unknown claim; 409 a blocked claim (no decision).",
-        "operationId": "claim_mark_outcome_api_claims__claim_id__mark_outcome_post",
         "parameters": [
           {
             "in": "path",
@@ -1471,7 +1453,6 @@
     "/api/claims/{claim_id}/replay": {
       "post": {
         "description": "Sub-feature B: re-run the DETERMINISTIC decision from the stored extracted\nfacts (no Gemini) and report whether it reproduces the original verdict \u2014\nproving 'same facts \u2192 same decision'. Older records without stored facts\nreturn {replayable: false} with a 200 (not an error: replay is best-effort).",
-        "operationId": "claim_replay_api_claims__claim_id__replay_post",
         "parameters": [
           {
             "in": "path",
@@ -1525,7 +1506,6 @@
     "/api/claims/{claim_id}/what-if": {
       "post": {
         "description": "What-if simulator (ops): apply overrides (claimed amount, network toggle,\ntreatment date, category, per-line toggles, or a candidate policy) to a COPY of\nthe stored facts, re-decide deterministically, and return before/after + which\nrules changed. Pure / read-only; never mutates stored data; no Gemini.",
-        "operationId": "claim_what_if_api_claims__claim_id__what_if_post",
         "parameters": [
           {
             "in": "path",
@@ -1589,7 +1569,6 @@
     "/api/documents/classify": {
       "post": {
         "description": "Live single-file classification for shift-left UX feedback. Saves the file\nto a scratch path, runs the SAME vision extraction the pipeline uses, and\nreturns a small JSON summary. A Gemini failure degrades gracefully to a 200\nUNKNOWN response rather than 500-ing the upload. This endpoint does NOT touch\nthe decision pipeline and its result is never authoritative.",
-        "operationId": "classify_document_api_documents_classify_post",
         "parameters": [
           {
             "in": "header",
@@ -1644,7 +1623,6 @@
     "/api/estimate": {
       "post": {
         "description": "DETERMINISTIC pre-submission payout estimate \u2014 NO LLM / pipeline. Builds a\nsingle line item for the claimed amount and runs the SAME financial.calculate\nthe pipeline uses (network discount first, then co-pay), so the number the\nmember sees mirrors the real arithmetic. Unknown category \u2192 422. This is an\nestimate only: the final amount depends on document verification + policy\nchecks (waiting periods, exclusions, pre-auth, limits) that need the documents.",
-        "operationId": "estimate_payout_api_estimate_post",
         "parameters": [
           {
             "in": "header",
@@ -1698,7 +1676,6 @@
     },
     "/api/eval/cases": {
       "get": {
-        "operationId": "eval_cases_api_eval_cases_get",
         "parameters": [
           {
             "in": "header",
@@ -1743,7 +1720,6 @@
     "/api/eval/message-quality": {
       "post": {
         "description": "Run the LLM-as-judge message-quality rubric on the 12 eval cases (12 judge\ncalls). ADDITIVE \u2014 grades the member-facing text the pipeline already produced,\nnever changing a decision. Re-uses the same lock as /api/eval/run since both run\nthe live 12-case pipeline.",
-        "operationId": "eval_message_quality_api_eval_message_quality_post",
         "parameters": [
           {
             "in": "header",
@@ -1787,7 +1763,6 @@
     },
     "/api/eval/run": {
       "post": {
-        "operationId": "eval_run_api_eval_run_post",
         "parameters": [
           {
             "in": "header",
@@ -1832,7 +1807,6 @@
     "/api/health": {
       "get": {
         "description": "Liveness \u2014 the process is up. Always 200 (used by container healthchecks).",
-        "operationId": "health_api_health_get",
         "responses": {
           "200": {
             "content": {
@@ -1853,7 +1827,6 @@
     "/api/jobs/{job_id}": {
       "get": {
         "description": "Poll a queued async claim. Maps Celery's AsyncResult state to the UI's\nstatus vocabulary and, once completed, attaches the persisted ClaimResult.\n\nCelery state \u2192 status: PENDING/RECEIVED\u2192queued, STARTED\u2192started,\nSUCCESS\u2192completed, FAILURE\u2192failed (everything else \u2192 queued).",
-        "operationId": "job_status_api_jobs__job_id__get",
         "parameters": [
           {
             "in": "path",
@@ -1906,7 +1879,6 @@
     },
     "/api/members": {
       "get": {
-        "operationId": "members_api_members_get",
         "parameters": [
           {
             "in": "header",
@@ -1951,7 +1923,6 @@
     "/api/ops/analytics": {
       "get": {
         "description": "Summary metrics for the ops dashboard: counts by status, approval / blocked /\nmanual-review rates, total + average approved amount, average confidence, fraud\n(MANUAL_REVIEW) count, est. total cost + average latency, and a by-category\nbreakdown. Tolerant of an empty/unavailable DB \u2192 all-zero shape (never 500s).",
-        "operationId": "ops_analytics_api_ops_analytics_get",
         "parameters": [
           {
             "in": "header",
@@ -1996,7 +1967,6 @@
     "/api/ops/fraud": {
       "get": {
         "description": "Claims flagged for fraud review (MANUAL_REVIEW), each annotated with its fraud\nsignals (reason codes, recommendations, extraction fraud_signals, fraud rule).",
-        "operationId": "ops_fraud_api_ops_fraud_get",
         "parameters": [
           {
             "in": "header",
@@ -2041,7 +2011,6 @@
     "/api/ops/improvement-proposals": {
       "get": {
         "description": "System self-assessment (ADVISORY ONLY): reads the system's own eval outputs\n(decision eval, extraction robustness, calibration ECE, confidence config) and\nreturns {findings, proposals}. Nothing here changes a prompt, threshold, weight,\nor decision \u2014 `auto_applicable` on each proposal is informational. Read-only; the\ndecision pipeline and the 12 cases are untouched. Degrades to an error shape rather\nthan 500.",
-        "operationId": "ops_improvement_proposals_api_ops_improvement_proposals_get",
         "parameters": [
           {
             "in": "header",
@@ -2086,7 +2055,6 @@
     "/api/ops/worklist": {
       "get": {
         "description": "Filtered/sorted claim queue. Filters: status, category, q (member id / claim\nid substring). Sort: created_at | amount | confidence (all desc). Each row carries\na `needs_review` flag (MANUAL_REVIEW or blocked) so the queue can prioritize.",
-        "operationId": "ops_worklist_api_ops_worklist_get",
         "parameters": [
           {
             "in": "query",
@@ -2189,7 +2157,6 @@
     "/api/policy/ask": {
       "post": {
         "description": "RAG over the policy. Retrieves the most relevant policy passages (cosine over\nGemini embeddings, keyword fallback if embeddings are unavailable) and returns a\ngrounded answer that cites the source passage titles. Read-only; says it is not\nspecified in the policy when the passages don't cover the question. Open access,\nconsistent with the other read-only /api/policy/* and /api/estimate endpoints.",
-        "operationId": "policy_ask_api_policy_ask_post",
         "parameters": [
           {
             "in": "header",
@@ -2244,7 +2211,6 @@
     "/api/policy/current": {
       "get": {
         "description": "The active policy JSON + its version metadata.",
-        "operationId": "policy_current_api_policy_current_get",
         "parameters": [
           {
             "in": "header",
@@ -2289,7 +2255,6 @@
     "/api/policy/document-requirements": {
       "get": {
         "description": "The full {category: {required, optional}} map from policy, so the frontend\ncan build per-category drop-zones. Read-only; reflects policy_terms.json.",
-        "operationId": "document_requirements_api_policy_document_requirements_get",
         "parameters": [
           {
             "in": "header",
@@ -2334,7 +2299,6 @@
     "/api/policy/preview": {
       "post": {
         "description": "READ-ONLY impact preview: run a sample claim through the deterministic decision\nunder the candidate policy vs the active policy, and return before/after. Never\ntouches the live policy file.",
-        "operationId": "policy_preview_api_policy_preview_post",
         "parameters": [
           {
             "in": "header",
@@ -2389,7 +2353,6 @@
     "/api/policy/versions": {
       "get": {
         "description": "All policy versions (metadata only, newest first).",
-        "operationId": "policy_versions_api_policy_versions_get",
         "parameters": [
           {
             "in": "header",
@@ -2432,7 +2395,6 @@
       },
       "post": {
         "description": "Validate + store a new INACTIVE policy version. Does not activate.",
-        "operationId": "policy_version_create_api_policy_versions_post",
         "parameters": [
           {
             "in": "header",
@@ -2487,7 +2449,6 @@
     "/api/policy/versions/{version_id}": {
       "get": {
         "description": "One policy version with its full JSON.",
-        "operationId": "policy_version_api_policy_versions__version_id__get",
         "parameters": [
           {
             "in": "path",
@@ -2541,7 +2502,6 @@
     "/api/policy/versions/{version_id}/activate": {
       "post": {
         "description": "Activate a version: writes its JSON to the live policy file, invalidates the\ncache, and audits. This changes live decisions.",
-        "operationId": "policy_version_activate_api_policy_versions__version_id__activate_post",
         "parameters": [
           {
             "in": "path",
@@ -2595,7 +2555,6 @@
     "/api/policy/versions/{version_id}/diff/{other_id}": {
       "get": {
         "description": "Structured leaf-path diff between two versions.",
-        "operationId": "policy_version_diff_api_policy_versions__version_id__diff__other_id__get",
         "parameters": [
           {
             "in": "path",
@@ -2658,7 +2617,6 @@
     "/api/ready": {
       "get": {
         "description": "Readiness \u2014 dependencies reachable. 200 only if Postgres answers; Redis is\nreported but not required (the app degrades to sync/in-memory without it). Use\nthis (not /api/health) to gate traffic in an orchestrator.",
-        "operationId": "ready_api_ready_get",
         "responses": {
           "200": {
             "content": {
@@ -2675,7 +2633,6 @@
     "/metrics": {
       "get": {
         "description": "Prometheus scrape endpoint (request count/latency by route+status). No PHI \u2014\nlabels are route templates and methods only.",
-        "operationId": "metrics_metrics_get",
         "responses": {
           "200": {
             "content": {

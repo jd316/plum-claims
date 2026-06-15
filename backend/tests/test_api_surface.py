@@ -40,11 +40,31 @@ def _route_inventory() -> list[list[str]]:
     return sorted(rows)
 
 
+def _strip_operation_ids(node):
+    """Remove auto-generated ``operationId`` values in place.
+
+    FastAPI derives operationId from the handler name + path + HTTP method. For a
+    route registered with multiple methods (the document-file route is GET+HEAD),
+    the suffix is taken from set iteration order, which depends on PYTHONHASHSEED —
+    making the raw schema non-deterministic across interpreter runs. operationId is
+    not part of the observable HTTP contract (paths/params/models/responses are), and
+    the route inventory below already guards method+path, so we drop operationId to
+    keep this snapshot deterministic without weakening the surface guarantee."""
+    if isinstance(node, dict):
+        node.pop("operationId", None)
+        for v in node.values():
+            _strip_operation_ids(v)
+    elif isinstance(node, list):
+        for v in node:
+            _strip_operation_ids(v)
+    return node
+
+
 def _openapi_canonical() -> str:
     # TestClient triggers schema generation through the real ASGI app.
     with TestClient(app) as client:
         schema = client.get("/openapi.json").json()
-    return json.dumps(schema, sort_keys=True, indent=2)
+    return json.dumps(_strip_operation_ids(schema), sort_keys=True, indent=2)
 
 
 def _read_or_write(path: pathlib.Path, current: str) -> str:
