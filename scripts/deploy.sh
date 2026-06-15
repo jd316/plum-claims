@@ -21,14 +21,15 @@ echo "==> deploying TAG=$TAG (previous=$PREV)"
 roll() {                       # roll <tag>
   local t="$1"; export TAG="$t"
   $COMPOSE pull
-  # migrations via a one-off container on the new image (db already running)
-  $COMPOSE run --rm --no-deps --no-build backend alembic upgrade head || echo "(no migrations / skipped)"
-  # --no-build: use the pulled image, never build on the host
-  $COMPOSE up -d --no-build
+  # Recreate and BLOCK until the app containers report healthy (avoids a health check
+  # racing container startup). --no-build: use the pulled image, never build on the host.
+  $COMPOSE up -d --no-build --wait --wait-timeout 180 || true
+  # Migrations on the now-running backend (additive/backward-compatible; no-op when current).
+  $COMPOSE exec -T backend alembic upgrade head || echo "(migrations: no-op or skipped)"
 }
 
 healthy() {                    # local health check via Caddy (no NAT hairpin, real SNI/cert)
-  for _ in $(seq 1 24); do
+  for _ in $(seq 1 18); do
     code="$(curl -s -o /dev/null -m 8 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/api/health" || echo 000)"
     [ "$code" = "200" ] && return 0
     sleep 5
