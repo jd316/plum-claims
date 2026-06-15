@@ -258,7 +258,14 @@ All five share `RuleContext` (`app/rules/base.py`) and the same shape:
 
 ---
 
-## 14. REST API — `app/main.py` (FastAPI)
+## 14. REST API — `app/main.py` + `app/api/*` (FastAPI)
+
+`app/main.py` owns app construction, lifespan, the request-context middleware,
+`/metrics`, the exception handler, and `/api/health` + `/api/ready`; all other routes
+live in bare `APIRouter` modules under `app/api/` (`auth`, `eval`, `policy`, `intake`,
+`claims_read`, `explain`, `ops_actions`, `assistant`), wired via `app.include_router(...)`.
+Shared route helpers (upload validation, claim ingest, rate limiters) live in
+`app/api/common.py`.
 
 **Auth model:** JWT bearer (cookie or `Authorization` header). `USER` = any authenticated
 principal (member or operator); `OPS` = operator-only (RBAC enforced via the `require_user` /
