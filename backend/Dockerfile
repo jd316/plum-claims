@@ -18,4 +18,9 @@ RUN useradd --create-home --uid 10001 appuser \
 WORKDIR /srv/backend
 ENV POLICY_PATH=/srv/policy_terms.json TEST_CASES_PATH=/srv/test_cases.json STORAGE_DIR=/srv/backend/storage
 USER appuser
+# Liveness probe baked into the image (the slim base has no curl, so use Python's
+# stdlib). Hits the always-200 /api/health endpoint; the orchestrator can use this
+# even outside docker-compose. Readiness (DB reachable) is the separate /api/ready.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=2).status==200 else 1)"
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
