@@ -8,6 +8,12 @@
 # The SSM caller does `git reset --hard origin/main` first so the compose files are current.
 set -uo pipefail
 
+# Serialize deploys on this host: if an overlapping CD run is mid-deploy, wait for it
+# (up to 5 min) rather than racing the same containers. Belt-and-suspenders on top of
+# the workflow-level concurrency cancel.
+exec 9>/tmp/plum-deploy.lock
+flock -w 300 9 || { echo "another deploy holds the lock — aborting"; exit 1; }
+
 APP=/opt/plum-claims
 DOMAIN=claims.zerocut.live
 TAG="${TAG:-latest}"
