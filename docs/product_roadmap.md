@@ -42,7 +42,7 @@ and ends with a *live extension*. We win on four bets:
 Non-negotiable; nothing below matters until these are done.
 - **Push to GitHub** with the clean history; enable access.
 - **Deploy** (EC2 `docker compose up`, expose only port 80) → public URL.
-- **Record the demo** from `docs/demo_script.md`. Rotate the Gemini key.
+- **Record the demo** → published at [youtu.be/UPxC4o24bQs](https://youtu.be/UPxC4o24bQs). Rotate the Gemini key.
 
 ---
 

@@ -1,20 +1,80 @@
 # Plum Claims Processing System
 
-An AI claims adjudicator for employee health-insurance claims. A member submits member
-details, a treatment category, a claimed amount, and one or more documents (bills,
-prescriptions, lab reports); the system reads the documents with vision, applies the member's
-policy, and returns one of **APPROVED · PARTIAL · REJECTED · MANUAL_REVIEW** with the approved
-amount, ranked reason codes, a confidence score, and a fully reconstructable trace — all
-through a React UI for submission and decision review.
+[![Live demo](https://img.shields.io/badge/live_demo-claims.zerocut.live-2ea44f?logo=amazonaws&logoColor=white)](https://claims.zerocut.live)
+[![Demo video](https://img.shields.io/badge/demo-walk--through-FF0000?logo=youtube&logoColor=white)](https://youtu.be/UPxC4o24bQs)
+[![Eval](https://img.shields.io/badge/eval-12%2F12%20passing-2ea44f)](docs/eval_report.md)
+&nbsp;
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C)
+![Gemini](https://img.shields.io/badge/Gemini-8E75B2?logo=googlegemini&logoColor=white)
+![React](https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black)
+![Postgres](https://img.shields.io/badge/Postgres-4169E1?logo=postgresql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
 
-**Eval: 12 / 12 test cases passing live** — see [`docs/eval_report.md`](docs/eval_report.md).
+An AI adjudicator for employee health-insurance claims. A member submits a treatment category, a
+claimed amount, and supporting documents (bills, prescriptions, lab reports); the system reads
+them with vision, applies the member's policy, and returns one of **APPROVED / PARTIAL / REJECTED
+/ MANUAL_REVIEW** — with the approved amount, ranked reason codes, a confidence score, and a fully
+reconstructable trace, through a React UI for submission and decision review.
 
-**Architecture in one line:** a LangGraph phase pipeline where the **LLM proposes** (Gemini
-classifies, extracts source-bound fields, maps to policy concepts, and judges) and
-**deterministic Python decides** (every rule, every rupee, every verdict) — so the same claim
-yields the same decision and the same trace.
+**Design principle: the LLM proposes, deterministic code decides.** Gemini classifies, extracts
+source-bound fields, maps free text to policy concepts, and judges; every rule, every rupee, and
+every verdict is plain deterministic Python. The same claim always yields the same decision and the
+same trace — which is what makes it auditable.
 
-## Beyond the assignment — standout product features
+## Contents
+
+- [Architecture](#architecture) · [Highlights](#highlights)
+- [Quickstart](#quickstart-docker) · [Deployment](#deployment) · [CI/CD](#cicd)
+- [Local development](#local-development-without-docker) · [Configuration](#configuration)
+- [Authentication and RBAC](#authentication-and-rbac) · [Testing](#testing) · [Eval](#eval)
+- [Project structure](#project-structure) · [Deliverables](#deliverables)
+
+## Architecture
+
+```mermaid
+flowchart TD
+    M["Member"] -->|"submit claim + documents"| FE
+    O["Operator"] -->|"review · dashboard · policy studio"| FE
+    FE["React SPA (nginx)"] -->|"REST /api — JWT + RBAC"| API["FastAPI — app/api routers"]
+    API -->|"run_claim()"| INT
+
+    subgraph PIPE["LangGraph pipeline — LLM proposes, deterministic code decides"]
+        direction TB
+        INT["intake"] -->|"ok"| EXT["extract_doc (fan-out: per document)"]
+        INT -. "submission problem" .-> EXP["explain"]
+        EXT --> DG["docgate"]
+        DG -->|"docs valid"| SM["semantic_map"]
+        DG -. "doc problem — early exit" .-> EXP
+        SM --> SUP["supervisor (safe rule routing)"]
+        SUP -->|"fan-out: per rule"| RC["rule_check: waiting · exclusion · pre-auth · limits · fraud"]
+        RC --> FIN["financial: network discount, then co-pay"]
+        FIN --> DEC["decide: aggregate verdict + confidence"]
+        DEC --> VER["verifier: LLM judge"]
+        VER --> EXP
+    end
+
+    EXP -->|"decision + trace + confidence"| API
+    EXT -. "Gemini Flash" .-> GEM[["Gemini — vision + LLM"]]
+    SM -. "Gemini Flash" .-> GEM
+    VER -. "Gemini Pro" .-> GEM
+
+    API --> PG[("PostgreSQL: claims · audit_log · users · policy_versions")]
+    API --> RDS[("Redis + Celery worker (async)")]
+    API --> OBJ[("object store: local / MinIO")]
+
+    classDef llm fill:#ffe1e8,stroke:#e0476a,color:#3a0d1c;
+    classDef det fill:#e4f0ff,stroke:#3a7bd5,color:#0a2540;
+    classDef ext fill:#fff4d6,stroke:#d9a400,color:#3a2c00;
+    class EXT,SM,VER llm
+    class INT,DG,SUP,RC,FIN,DEC,EXP det
+    class GEM,PG,RDS,OBJ ext
+```
+
+**Reading it:** pink = LLM (Gemini) steps that *propose* facts; blue = deterministic Python that *decides*; yellow = infra/external. The two dotted **early-exit** edges stop a claim before any decision when intake or documents fail; the two **fan-outs** run extraction per-document and rules per-rule. A clean claim emits ~14 ordered trace steps. Full detail in [`docs/architecture.md`](docs/architecture.md).
+
+## Highlights
 These go past the brief toward a production tool (see [`docs/product_roadmap.md`](docs/product_roadmap.md)):
 - **Real-time "shift-left" document verification** — the submission form shows per-category
   drop-zones ("Upload Prescription", "Upload Hospital Bill") and classifies each file *as you
@@ -67,6 +127,13 @@ backend. The vision pipeline is fully live, so the host needs network access to 
 > Docker Compose auto-reads the root `.env` for `${GEMINI_API_KEY}` interpolation, so no manual
 > `export` step is needed. (For non-Docker local dev the backend reads `backend/.env` instead.)
 
+---
+
+## Deployment
+
+Push to `main` ships automatically via CI/CD; a from-scratch single-VM setup is documented in
+[`docs/DEPLOY.md`](docs/DEPLOY.md).
+
 ### CI/CD
 
 One GitHub Actions workflow ([`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)) gates and
@@ -82,7 +149,7 @@ ships every change to `main`:
   containers never become healthy. Images run via [`docker-compose.deploy.yml`](docker-compose.deploy.yml)
   (the host only ever pulls, never builds).
 
-### Deploy
+### Single-VM deploy
 
 > **Full step-by-step single-VM prod deploy:** [`docs/DEPLOY.md`](docs/DEPLOY.md) (provision → secrets →
 > `.env` → one command → optional HTTPS). The summary below is the short version.
@@ -110,7 +177,7 @@ backend has a healthcheck and the frontend waits for it to be healthy, so nginx 
   conservative; tune them to your VM.
 - **Auto-restart + healthchecks** on all long-running services (`restart: unless-stopped`).
 
-#### HTTPS (optional overlay)
+### HTTPS (optional overlay)
 
 For a public URL, terminate TLS with the bundled Caddy overlay — it auto-provisions and renews
 a Let's Encrypt certificate for your domain (no manual certbot):
@@ -124,7 +191,7 @@ DOMAIN=claims.example.com \
 the ACME challenge). Caddy proxies to the frontend over the internal network, so with the
 overlay the frontend no longer publishes its own host port.
 
-#### Production hardening
+### Production hardening
 
 These are deliberate **off-by-default** toggles; turn them on for a real deployment:
 
@@ -142,7 +209,7 @@ These are deliberate **off-by-default** toggles; turn them on for a real deploym
 - Restrict CORS — the app currently allows all origins (`*`); pin it to your frontend origin.
 - Add rate limiting in front of the API (e.g. at nginx) for the public endpoints.
 
-#### Reproducible builds
+### Reproducible builds
 
 The backend image installs a fully-pinned dependency closure from
 [`backend/requirements.lock`](backend/requirements.lock) (89 packages, resolved against
@@ -158,7 +225,7 @@ PHI encryption), HTTPS via Caddy + Let's Encrypt. Sign in as operator (`ops`) or
 
 ---
 
-## Local dev (without Docker)
+## Local development (without Docker)
 
 **Backend** (Python 3.12):
 
@@ -186,7 +253,7 @@ for the dev proxy.
 
 ---
 
-## Environment variables
+## Configuration
 
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
@@ -220,7 +287,7 @@ for the dev proxy.
 
 ---
 
-## Authentication & RBAC (off by default)
+## Authentication and RBAC
 
 The backend ships self-issued JWT auth with member-vs-ops role-based access control. It is
 **gated OFF by `AUTH_ENABLED=false` (the default)**: with auth off, every endpoint, the 12/12
@@ -247,7 +314,7 @@ Crypto: passwords are hashed with `bcrypt` (used directly), tokens are signed wi
 
 ---
 
-## Running tests
+## Testing
 
 **All tests are live — no mocks, stubs, or recorded responses anywhere.** Deterministic
 components are exercised as pure functions with real inputs; LLM-touching components and the
@@ -297,11 +364,12 @@ edge behaviour** (not required by the brief):
 
 ---
 
-## Repo map
+## Project structure
 
 ```
 backend/app/
-  main.py            FastAPI app + REST routes
+  main.py            FastAPI app: middleware, lifespan + router wiring
+  api/               REST routers: auth, intake, claims_read, eval, explain, ops_actions, policy, assistant
   config.py          settings (env, model names, asset-path resolution)
   graph/             LangGraph pipeline: state.py, nodes.py, build.py
   agents/            LLM agents: extraction.py, semantic_map.py, verifier.py
@@ -313,7 +381,7 @@ backend/app/
   evalrunner/        runner + expected-vs-actual matching
 backend/tests/       live + deterministic test suites
 frontend/src/
-  pages/             Submit, Claim (review), Eval, Claims
+  pages/             Login, Submit, Claims, Claim (review), Ops dashboard, Worklist, Fraud, Policy studio, Eval
   components/         VerdictCard, FinancialTable, TraceTimeline, ConfidenceBar, FileDrop
 docs/                architecture.md, contracts.md, eval_report.md
 docker-compose.yml   6 services: db (Postgres), redis, backend, worker (Celery),
@@ -324,8 +392,11 @@ docker-compose.yml   6 services: db (Postgres), redis, backend, worker (Celery),
 
 ## Deliverables
 
-- **Architecture Document** — [`docs/architecture.md`](docs/architecture.md)
-- **Component Contracts** — [`docs/contracts.md`](docs/contracts.md)
-- **Eval Report (12/12)** — [`docs/eval_report.md`](docs/eval_report.md)
-- **Assignment brief** (kept for reference) — [`assignment.md`](assignment.md)
-- **Demo video:** &lt;link&gt;
+| Deliverable | Link |
+|---|---|
+| Live deployment | <https://claims.zerocut.live> |
+| Demo video (narrated walk-through) | <https://youtu.be/UPxC4o24bQs> |
+| Eval report (12 / 12 passing) | [`docs/eval_report.md`](docs/eval_report.md) |
+| Architecture document | [`docs/architecture.md`](docs/architecture.md) |
+| Component contracts | [`docs/contracts.md`](docs/contracts.md) |
+| Assignment brief (reference) | [`assignment.md`](assignment.md) |
