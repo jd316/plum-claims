@@ -25,7 +25,7 @@ same trace — which is what makes it auditable.
 ## Contents
 
 - [Architecture](#architecture) · [Highlights](#highlights)
-- [Quickstart](#quickstart-docker) · [Deployment](#deployment) · [CI/CD](#cicd)
+- [Quickstart](#quickstart-docker) · [Deployment](#deployment) · [CI](#ci)
 - [Local development](#local-development-without-docker) · [Configuration](#configuration)
 - [Authentication and RBAC](#authentication-and-rbac) · [Testing](#testing) · [Eval](#eval)
 - [Project structure](#project-structure) · [Deliverables](#deliverables)
@@ -130,23 +130,18 @@ backend. The vision pipeline is fully live, so the host needs network access to 
 
 ## Deployment
 
-Push to `main` ships automatically via CI/CD; a from-scratch single-VM setup is documented in
-[`docs/DEPLOY.md`](docs/DEPLOY.md).
+A from-scratch single-VM setup is documented in [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
-### CI/CD
+### CI
 
-One GitHub Actions workflow ([`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)) gates and
-ships every change to `main`:
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) gates every push/PR:
+backend (ruff · pyright · pytest), frontend (tsc · eslint · vite build), and a Trivy vulnerability
+scan. Docs-only changes are skipped via `paths-ignore`.
 
-- **CI jobs** — backend (ruff · pyright · pytest), frontend (tsc · eslint · vite build), and a Trivy
-  vulnerability scan, on every push/PR.
-- **`deploy` job** — gated on the three test jobs (`needs:`) and limited to pushes on `main`: build the
-  backend + frontend images, push to the registry tagged by commit SHA, then deploy to the EC2 host via
-  **AWS SSM** (GitHub authenticates with a short-lived **OIDC** role — *no static AWS keys or SSH key in
-  GitHub*). On the host, [`scripts/deploy.sh`](scripts/deploy.sh) pulls the images, waits for the
-  containers' healthchecks, runs migrations, and **rolls back to the previous tag** if the new
-  containers never become healthy. Images run via [`docker-compose.deploy.yml`](docker-compose.deploy.yml)
-  (the host only ever pulls, never builds).
+> The original pipeline also **auto-deployed** green `main` to AWS EC2 — build images → push to
+> GHCR → deploy over **OIDC + SSM** (no static keys), with healthcheck-gated rollback via
+> [`scripts/deploy.sh`](scripts/deploy.sh). That deploy job was retired when the demo instance was
+> decommissioned; it lives in git history if you want to wire up your own.
 
 ### Single-VM deploy
 
