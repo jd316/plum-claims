@@ -15,7 +15,7 @@ exec 9>/tmp/plum-deploy.lock
 flock -w 300 9 || { echo "another deploy holds the lock — aborting"; exit 1; }
 
 APP=/opt/plum-claims
-DOMAIN=claims.zerocut.live
+DOMAIN="${DOMAIN:-claims.example.com}"   # override via env for your own deploy
 TAG="${TAG:-latest}"
 COMPOSE="docker compose -p plumclaims -f docker-compose.yml -f docker-compose.deploy.yml -f docker-compose.tls.yml"
 
