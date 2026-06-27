@@ -1,6 +1,5 @@
 # Plum Claims Processing System
 
-[![Live demo](https://img.shields.io/badge/live_demo-claims.zerocut.live-2ea44f?logo=amazonaws&logoColor=white)](https://claims.zerocut.live)
 [![Demo video](https://img.shields.io/badge/demo-walk--through-FF0000?logo=youtube&logoColor=white)](https://youtu.be/UPxC4o24bQs)
 [![Eval](https://img.shields.io/badge/eval-12%2F12%20passing-2ea44f)](docs/eval_report.md)
 &nbsp;
@@ -219,9 +218,9 @@ loose `>=` ranges in `pyproject.toml` remain the human-facing declaration. To re
 changing dependencies, install the project in a clean `python:3.12-slim` and
 `pip freeze --exclude-editable > backend/requirements.lock`.
 
-**Deployed URL:** **https://claims.zerocut.live** — live, true-prod (JWT auth + RBAC + at-rest
-PHI encryption), HTTPS via Caddy + Let's Encrypt. Sign in as operator (`ops`) or member
-(`EMP001`…) using the seeded review credentials.
+**Deployment:** ran in true-prod on a single AWS VM (JWT auth + RBAC + at-rest PHI encryption,
+HTTPS via Caddy + Let's Encrypt). The demo instance has since been decommissioned — reproduce
+with `make tls DOMAIN=your.fqdn` or the steps above.
 
 ---
 
@@ -394,7 +393,6 @@ docker-compose.yml   6 services: db (Postgres), redis, backend, worker (Celery),
 
 | Deliverable | Link |
 |---|---|
-| Live deployment | <https://claims.zerocut.live> |
 | Demo video (narrated walk-through) | <https://youtu.be/UPxC4o24bQs> |
 | Eval report (12 / 12 passing) | [`docs/eval_report.md`](docs/eval_report.md) |
 | Architecture document | [`docs/architecture.md`](docs/architecture.md) |
